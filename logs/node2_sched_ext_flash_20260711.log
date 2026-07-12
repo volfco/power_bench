@@ -1,0 +1,5 @@
+Sweep: 1 variants, 1 repeats each = 1 runs (shuffled).
+Tests: local/power-bench-build-kernel-defconfig-1.0.0 (idle-targeted variants: idle + local/power-bench-build-kernel-defconfig-1.0.0)
+
+=== iter 1/1: sched_ext=scx_flash | test=local/power-bench-build-kernel-defconfig-1.0.0 | repeat=1 | nondefaults={'scx_scheduler': 'scx_flash'} ===
++ ansible-playbook -i ansible/hosts --limit node2 ansible/apply_optimizations.yml -e @ansible/vars/runs/node2/iter_0001_sched_ext_scx_flash.yml

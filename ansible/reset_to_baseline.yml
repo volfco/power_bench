@@ -1,0 +1,120 @@
+---
+# Revert runtime power tunables to stock kernel defaults before each experiment.
+#
+# Only no-reboot (sysfs / runtime) knobs are handled here. Boot-parameter and BIOS
+# reverts require a reboot and are owned by their own optimization playbooks
+# (e.g. kernel_params.yml restores the stock GRUB cmdline and reboots).
+#
+# Run this BEFORE applying any single optimization so every measurement starts from
+# the same known state:
+#     ansible-playbook -i ansible/hosts ansible/reset_to_baseline.yml
+- name: Reset power tunables to baseline
+  hosts: benchmarks
+  become: true
+  vars:
+    # Captured fresh-boot defaults for the current rig. Override these with -e when
+    # using this manual reset playbook against a different host.
+    baseline_cpu_governor: powersave
+    baseline_io_scheduler: none
+  tasks:
+    - name: Restore captured baseline CPU governor
+      shell: |
+        avail=$(cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_available_governors 2>/dev/null || true)
+        echo "$avail" | grep -qw "{{ baseline_cpu_governor }}" || {
+          echo "Baseline governor {{ baseline_cpu_governor }} unavailable; available: $avail"
+          exit 1
+        }
+        for c in /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor; do
+          [ -w "$c" ] && echo "{{ baseline_cpu_governor }}" > "$c" || true
+        done
+      changed_when: true
+
+    - name: Re-enable Intel turbo (no_turbo=0)
+      shell: echo 0 > /sys/devices/system/cpu/intel_pstate/no_turbo
+      failed_when: false   # not present on AMD / non-pstate systems
+      changed_when: true
+
+    - name: Re-enable cpufreq boost (AMD / acpi-cpufreq)
+      shell: echo 1 > /sys/devices/system/cpu/cpufreq/boost
+      failed_when: false
+      changed_when: true
+
+    - name: Restore default PCIe ASPM policy
+      shell: echo default > /sys/module/pcie_aspm/parameters/policy
+      failed_when: false
+      changed_when: true
+
+    - name: Restore captured baseline block I/O scheduler where supported
+      shell: |
+        for q in /sys/block/*/queue/scheduler; do
+          [ -w "$q" ] || continue
+          grep -qw "{{ baseline_io_scheduler }}" "$q" || continue
+          echo "{{ baseline_io_scheduler }}" > "$q"
+        done
+      changed_when: true
+
+    - name: Disable USB autosuspend (power/control=on)
+      shell: |
+        for f in /sys/bus/usb/devices/*/power/control; do
+          [ -w "$f" ] && echo on > "$f" || true
+        done
+      failed_when: false
+      changed_when: true
+
+    - name: Re-enable all CPU idle states (clear any C-state limit)
+      shell: |
+        for f in /sys/devices/system/cpu/cpu*/cpuidle/state*/disable; do
+          [ -w "$f" ] && echo 0 > "$f" || true
+        done
+      failed_when: false
+      changed_when: true
+
+    - name: Restore HWP energy-performance preference to firmware default
+      shell: |
+        for f in /sys/devices/system/cpu/cpu*/cpufreq/energy_performance_preference; do
+          [ -w "$f" ] && echo default > "$f" || true
+        done
+      failed_when: false
+      changed_when: true
+
+    - name: Restore intel_pstate max_perf_pct to 100
+      shell: echo 100 > /sys/devices/system/cpu/intel_pstate/max_perf_pct
+      failed_when: false
+      changed_when: true
+
+    - name: Restore SATA link power management to max_performance
+      shell: |
+        for p in /sys/class/scsi_host/host*/link_power_management_policy; do
+          [ -w "$p" ] && echo max_performance > "$p" || true
+        done
+      failed_when: false
+      changed_when: true
+
+    - name: Unload any sched_ext (SCX) scheduler -> back to the in-kernel default
+      systemd:
+        name: "{{ item }}"
+        state: stopped
+      loop:
+        - scx-power.service   # our optimization unit (sched_ext.yml)
+        - scx.service         # distro-shipped loader, if present
+      failed_when: false      # absent units / no SCX support are fine here
+
+    - name: Confirm sched_ext is disabled (if the kernel supports it)
+      shell: cat /sys/kernel/sched_ext/state 2>/dev/null || echo "n/a"
+      register: scx_state_reset
+      changed_when: false
+      failed_when: false
+
+    - name: Read back current governor
+      shell: cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor
+      register: gov_now
+      changed_when: false
+      failed_when: false
+
+    - name: Report baseline state
+      debug:
+        msg: >
+          Governor now: {{ gov_now.stdout | default('unknown') }}.
+          sched_ext: {{ scx_state_reset.stdout | default('n/a') }} (expected 'disabled' or 'n/a').
+          Runtime tunables reset. Boot-parameter / BIOS reverts (if any optimization
+          changed them) require a reboot and are handled by their own playbooks.

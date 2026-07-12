@@ -1,0 +1,12 @@
+# Confirmed load profile for the current rig.
+#
+# Five valid kernel-compile repeats retained 97.92% of baseline performance while
+# reducing fixed-work energy by 2.56% and average load power by 4.32%.
+# This runtime-only cap returns to 100% after reboot.
+#
+# Apply:
+#   ansible-playbook -i ansible/hosts ansible/apply_optimizations.yml \
+#     -e @ansible/profiles/balanced_load.yml
+# Revert without reboot:
+#   ansible-playbook -i ansible/hosts ansible/reset_to_baseline.yml
+pstate_max_perf_pct: 90

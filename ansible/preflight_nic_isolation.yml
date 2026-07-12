@@ -1,0 +1,88 @@
+---
+# Read-only safety gate for experiments that would disrupt the active NIC.
+#
+# This playbook MUST pass before link-down, speed-negotiation, EEE, runtime-PM,
+# unbind, or similar testing on `nic_under_test`. It derives the controller address
+# from the live SSH connection and rejects the test when the return route uses that
+# NIC. Passing this preflight does not itself alter either network interface.
+#
+# Usage:
+#   ansible-playbook -i ansible/hosts ansible/preflight_nic_isolation.yml \
+#     -e nic_under_test=enp172s0
+- name: Preflight disruptive active-NIC testing
+  hosts: benchmarks
+  become: true
+  gather_facts: false
+  vars:
+    nic_under_test: enp172s0
+  tasks:
+    - name: Capture live SSH connection metadata before privilege escalation
+      command: printenv SSH_CONNECTION
+      become: false
+      register: ssh_connection
+      changed_when: false
+      failed_when: false
+
+    - name: Require SSH connection metadata
+      assert:
+        that:
+          - ssh_connection.rc == 0
+          - ssh_connection.stdout.split() | length >= 4
+        fail_msg: >-
+          SSH_CONNECTION metadata is unavailable, so the management path cannot be
+          proven independent. Refusing disruptive NIC testing.
+
+    - name: Record controller and target addresses for this SSH session
+      set_fact:
+        controller_ip: "{{ ssh_connection.stdout.split()[0] }}"
+        ssh_target_ip: "{{ ssh_connection.stdout.split()[2] }}"
+
+    - name: Verify the NIC under test exists
+      stat:
+        path: "/sys/class/net/{{ nic_under_test }}"
+      register: nic_path
+
+    - name: Refuse an unknown NIC
+      assert:
+        that:
+          - nic_path.stat.exists
+        fail_msg: "NIC {{ nic_under_test }} does not exist on the target."
+
+    - name: Resolve the live return route to the Ansible controller
+      command: "ip route get {{ controller_ip }}"
+      register: controller_route
+      changed_when: false
+
+    - name: Resolve the interface owning the SSH target address
+      shell: |
+        ip -o -4 address show to {{ ssh_target_ip }} | awk '{print $2; exit}'
+      register: ssh_target_interface
+      changed_when: false
+
+    - name: Refuse testing through the only live management path
+      assert:
+        that:
+          - "(' dev ' ~ nic_under_test ~ ' ') not in (' ' ~ controller_route.stdout ~ ' ')"
+          - ssh_target_interface.stdout != nic_under_test
+        fail_msg: >-
+          UNSAFE: the live SSH/Ansible management path uses {{ nic_under_test }}.
+          Return route: {{ controller_route.stdout }}; SSH target address
+          {{ ssh_target_ip }} belongs to {{ ssh_target_interface.stdout | default('unknown', true) }}.
+          Establish and verify console/out-of-band access or connect through a
+          different interface before changing this NIC.
+
+    - name: Read non-disruptive NIC state
+      shell: |
+        printf 'link='; cat /sys/class/net/{{ nic_under_test }}/operstate
+        printf 'carrier='; cat /sys/class/net/{{ nic_under_test }}/carrier 2>/dev/null || true
+        ethtool {{ nic_under_test }} 2>/dev/null | sed -n '/Speed:/p;/Link detected:/p'
+        ethtool --show-eee {{ nic_under_test }} 2>/dev/null | sed -n '/EEE status:/p;/Link partner advertised EEE/p'
+      register: nic_state
+      changed_when: false
+
+    - name: Report safe isolation preflight
+      debug:
+        msg: >-
+          SAFE TO PROCEED: SSH target {{ ssh_target_ip }} and controller return route
+          are independent of {{ nic_under_test }}. Current state:
+          {{ nic_state.stdout_lines | join('; ') }}

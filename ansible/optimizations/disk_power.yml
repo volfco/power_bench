@@ -1,0 +1,48 @@
+---
+# Disk power management: SATA link power management (DIPM/ALPM) + HDD APM via hdparm.
+# Link PM saves idle SATA power; med_power_with_dipm is the usual safe power choice.
+# Apply:  ansible-playbook -i ansible/hosts ansible/optimizations/disk_power.yml -e sata_link_pm=med_power_with_dipm
+# Revert: reset_to_baseline.yml (restores max_performance)
+- name: "disk_power - SATA link power management and HDD APM"
+  hosts: benchmarks
+  become: true
+  vars:
+    sata_link_pm: med_power_with_dipm   # max_performance | medium_power | med_power_with_dipm | min_power
+    hdd_apm_level: 128                  # hdparm -B (1..254), rotational disks only; 128 = balanced
+  tasks:
+    - name: Set SATA link power management policy
+      shell: |
+        for p in /sys/class/scsi_host/host*/link_power_management_policy; do
+          [ -w "$p" ] && echo "{{ sata_link_pm }}" > "$p" || true
+        done
+      failed_when: false
+      changed_when: true
+
+    - name: Install hdparm
+      package:
+        name: hdparm
+        state: present
+      failed_when: false
+
+    - name: Apply APM level to rotational disks only
+      shell: |
+        for d in /sys/block/sd*; do
+          [ -e "$d" ] || continue
+          rot=$(cat "$d/queue/rotational" 2>/dev/null || echo 0)
+          [ "$rot" = "1" ] && hdparm -B {{ hdd_apm_level | int }} "/dev/$(basename $d)" >/dev/null 2>&1 || true
+        done
+      failed_when: false
+      changed_when: true
+
+    - name: Verify link power policy
+      shell: |
+        for p in /sys/class/scsi_host/host*/link_power_management_policy; do
+          echo "$(echo $p | cut -d/ -f5): $(cat $p)"
+        done
+      register: disk_now
+      changed_when: false
+      failed_when: false
+
+    - name: Report
+      debug:
+        var: disk_now.stdout_lines

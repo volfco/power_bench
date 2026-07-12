@@ -1,0 +1,58 @@
+---
+# Kernel boot parameters for power. REQUIRES A REBOOT to apply and to revert.
+# Managed via a dedicated GRUB var (GRUB_CMDLINE_LINUX_POWERBENCH) appended to the kernel
+# cmdline, so reverting is simply setting kernel_params=[] (which clears it) and rebooting.
+# Apply:  ansible-playbook -i ansible/hosts ansible/optimizations/kernel_params.yml \
+#             -e '{"kernel_params":["pcie_aspm=force","intel_pstate=passive"]}'
+# Revert: ansible-playbook -i ansible/hosts ansible/optimizations/kernel_params.yml -e '{"kernel_params":[]}'
+- name: "kernel_params - power-related kernel boot parameters"
+  hosts: benchmarks
+  become: true
+  vars:
+    kernel_params: []      # e.g. [pcie_aspm=force, intel_idle.max_cstate=9, nohz_full=1-7]
+    reboot_after: true
+  tasks:
+    - name: Set the power_bench-managed GRUB cmdline fragment
+      lineinfile:
+        path: /etc/default/grub
+        regexp: '^GRUB_CMDLINE_LINUX_POWERBENCH='
+        line: "GRUB_CMDLINE_LINUX_POWERBENCH=\"{{ kernel_params | join(' ') }}\""
+        create: true
+      register: grub_frag
+
+    - name: Reference the managed fragment from GRUB_CMDLINE_LINUX (idempotent)
+      lineinfile:
+        path: /etc/default/grub
+        regexp: '^GRUB_CMDLINE_LINUX="\$\{GRUB_CMDLINE_LINUX\} \$\{GRUB_CMDLINE_LINUX_POWERBENCH\}"$'
+        line: 'GRUB_CMDLINE_LINUX="${GRUB_CMDLINE_LINUX} ${GRUB_CMDLINE_LINUX_POWERBENCH}"'
+        insertafter: '^GRUB_CMDLINE_LINUX_POWERBENCH='
+      register: grub_ref
+
+    - name: Regenerate GRUB config (Debian)
+      command: update-grub
+      when: ansible_os_family == "Debian" and (grub_frag.changed or grub_ref.changed)
+
+    - name: Regenerate GRUB config (RedHat / BIOS)
+      command: grub2-mkconfig -o /boot/grub2/grub.cfg
+      when: ansible_os_family == "RedHat" and (grub_frag.changed or grub_ref.changed)
+      failed_when: false
+
+    - name: Regenerate GRUB config (RedHat / UEFI)
+      command: grub2-mkconfig -o /boot/efi/EFI/{{ 'fedora' if ansible_distribution == 'Fedora' else 'redhat' }}/grub.cfg
+      when: ansible_os_family == "RedHat" and (grub_frag.changed or grub_ref.changed)
+      failed_when: false
+
+    - name: Reboot to apply the new cmdline
+      reboot:
+        msg: "power_bench kernel_params change"
+        reboot_timeout: 600
+      when: reboot_after and (grub_frag.changed or grub_ref.changed)
+
+    - name: Show the active cmdline
+      shell: cat /proc/cmdline
+      register: cmdline_now
+      changed_when: false
+
+    - name: Report
+      debug:
+        msg: "Requested: '{{ kernel_params | join(' ') }}' | active /proc/cmdline: {{ cmdline_now.stdout }}"

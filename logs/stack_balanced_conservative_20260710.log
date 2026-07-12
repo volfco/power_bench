@@ -1,0 +1,251 @@
+2026-07-10 17:08:00 INFO  Rebooting 192.168.1.58 (end of test)...
+2026-07-10 17:08:15 INFO  Waiting for 192.168.1.58 to come back up...
+2026-07-10 17:10:24 INFO  192.168.1.58 is back up
+Sweep: 1 variants, 3 repeats each = 3 runs.
+Tests: local/power-bench-build-kernel-defconfig-1.0.0 (idle-targeted variants: idle + local/power-bench-build-kernel-defconfig-1.0.0)
+
+=== iter 1/3: stack=balanced_load+conservative_idle | test=local/power-bench-build-kernel-defconfig-1.0.0 | repeat=1 | nondefaults={'pstate_max_perf_pct': 90, 'pcie_aspm_policy': 'powersave'} ===
++ ansible-playbook -i ansible/hosts ansible/apply_optimizations.yml -e @ansible/vars_stack_balanced_conservative_20260710/iter_0001_stack_balanced_load+conservative_idle.yml
+
+PLAY [Apply power-optimization varfile] ****************************************
+
+TASK [Gathering Facts] *********************************************************
+ok: [target]
+
+TASK [Set the power_bench-managed GRUB cmdline fragment] ***********************
+ok: [target]
+
+TASK [Reference the managed fragment from GRUB_CMDLINE_LINUX (idempotent)] *****
+ok: [target]
+
+TASK [Regenerate GRUB (Debian)] ************************************************
+skipping: [target]
+
+TASK [Regenerate GRUB (RedHat / BIOS)] *****************************************
+skipping: [target]
+
+TASK [Regenerate GRUB (RedHat / UEFI)] *****************************************
+skipping: [target]
+
+TASK [Reboot if the kernel cmdline changed, then continue on the rebooted host] ***
+skipping: [target]
+
+TASK [CPU governor] ************************************************************
+skipping: [target]
+
+TASK [Turbo / boost] ***********************************************************
+skipping: [target]
+
+TASK [C-states (enable all)] ***************************************************
+skipping: [target]
+
+TASK [C-states (limit to index <= cstate_limit)] *******************************
+skipping: [target]
+
+TASK [HWP energy-performance preference (EPP)] *********************************
+skipping: [target]
+
+TASK [intel_pstate max_perf_pct] ***********************************************
+changed: [target]
+
+TASK [intel_pstate min_perf_pct] ***********************************************
+skipping: [target]
+
+TASK [PCIe ASPM policy] ********************************************************
+changed: [target]
+
+TASK [Block I/O scheduler] *****************************************************
+skipping: [target]
+
+TASK [USB autosuspend] *********************************************************
+skipping: [target]
+
+TASK [SATA link power management] **********************************************
+skipping: [target]
+
+TASK [HDD APM (rotational disks only)] *****************************************
+skipping: [target]
+
+TASK [GPU power profile] *******************************************************
+skipping: [target]
+
+TASK [Stop services for this run (runtime only; the reboot restores them)] *****
+skipping: [target]
+
+TASK [NIC power (EEE / Wake-on-LAN / wifi power-save)] *************************
+skipping: [target]
+
+TASK [Ensure no leftover SCX scheduler (clean baseline)] ***********************
+ok: [target]
+
+TASK [Verify kernel sched_ext support] *****************************************
+skipping: [target]
+
+TASK [Fail if sched_ext unavailable] *******************************************
+skipping: [target]
+
+TASK [Install SCX (Debian)] ****************************************************
+skipping: [target]
+
+TASK [Install SCX (RedHat)] ****************************************************
+skipping: [target]
+
+TASK [Resolve scheduler binary] ************************************************
+skipping: [target]
+
+TASK [Install scx-power.service unit] ******************************************
+skipping: [target]
+
+TASK [Reload systemd] **********************************************************
+skipping: [target]
+
+TASK [Start scx-power.service (NOT enabled, so a reboot clears it)] ************
+skipping: [target]
+
+TASK [Wait for the scheduler to attach] ****************************************
+skipping: [target]
+
+TASK [Verify CPU governor] *****************************************************
+skipping: [target]
+
+TASK [Verify turbo / boost] ****************************************************
+skipping: [target]
+
+TASK [Verify C-state limits] ***************************************************
+skipping: [target]
+
+TASK [Verify energy-performance preference] ************************************
+skipping: [target]
+
+TASK [Verify intel_pstate max_perf_pct] ****************************************
+ok: [target]
+
+TASK [Verify intel_pstate min_perf_pct] ****************************************
+skipping: [target]
+
+TASK [Verify PCIe ASPM policy] *************************************************
+ok: [target]
+
+TASK [Verify block I/O scheduler] **********************************************
+skipping: [target]
+
+TASK [Verify USB autosuspend] **************************************************
+skipping: [target]
+
+TASK [Verify SATA link power management] ***************************************
+skipping: [target]
+
+TASK [Verify services stopped] *************************************************
+skipping: [target]
+
+TASK [Verify SCX scheduler attached] *******************************************
+skipping: [target]
+
+TASK [Verify kernel params on the live cmdline] ********************************
+skipping: [target]
+
+TASK [Report applied configuration] ********************************************
+ok: [target] => {
+    "msg": "Applied: governor=- turbo=- cstate_limit=- epp=- max_perf_pct=90 aspm=powersave io=- usb_autosuspend=- sata=- gpu=- nic_power_save=- scx=none kernel_params=''\n"
+}
+
+PLAY RECAP *********************************************************************
+target                     : ok=9    changed=2    unreachable=0    failed=0    skipped=37   rescued=0    ignored=0   
+
++ /usr/bin/python3 run_benchmark.py 192.168.1.58 local/power-bench-build-kernel-defconfig-1.0.0 --db benchmarks/power_meter.duckdb --optimization stack=balanced_load+conservative_idle --repeat 1 --settle 30.0 --config-hash 78fa255b78b3 --reboot --cool-to 55.0 --user metrolla --mac 45:AF:4E:55:56:06 --checksum-policy warn
+2026-07-10 17:10:29 INFO  Run #79  test=local/power-bench-build-kernel-defconfig-1.0.0  optimization=stack=balanced_load+conservative_idle  repeat=1
+2026-07-10 17:10:29 INFO  Connecting to power meter...
+2026-07-10 17:10:29 INFO  Connecting to 45:AF:4E:55:56:06
+2026-07-10 17:10:30 INFO  Connected and notifications started
+2026-07-10 17:10:31 WARNING Meter checksum mismatch; policy=warn
+2026-07-10 17:10:31 INFO  #1 [settle] 121.8V 0.079A 4.00W 30.0C
+2026-07-10 17:10:31 INFO  Ambient auto-filled from meter temperature: 30.0 C
+2026-07-10 17:10:31 INFO  Settling for 30.0s minimum (gate: stdev of last 15 samples < 1.00 W)...
+2026-07-10 17:10:32 INFO  #2 [settle] 121.9V 0.081A 4.10W 30.0C
+2026-07-10 17:10:33 INFO  #3 [settle] 121.9V 0.079A 3.90W 30.0C
+2026-07-10 17:10:34 INFO  #4 [settle] 121.9V 0.078A 4.00W 30.0C
+2026-07-10 17:10:35 INFO  #5 [settle] 121.8V 0.079A 3.90W 30.0C
+2026-07-10 17:10:36 INFO  #6 [settle] 121.9V 0.080A 4.00W 30.0C
+2026-07-10 17:10:37 INFO  #7 [settle] 121.8V 0.084A 4.60W 30.0C
+2026-07-10 17:10:38 INFO  #8 [settle] 121.9V 0.079A 3.90W 30.0C
+2026-07-10 17:10:39 INFO  #9 [settle] 121.9V 0.076A 3.80W 30.0C
+2026-07-10 17:10:40 INFO  #10 [settle] 121.7V 0.078A 3.90W 30.0C
+2026-07-10 17:10:41 INFO  #11 [settle] 121.8V 0.078A 4.00W 30.0C
+2026-07-10 17:10:42 INFO  #12 [settle] 121.8V 0.089A 5.20W 30.0C
+2026-07-10 17:10:43 INFO  #13 [settle] 121.6V 0.078A 3.90W 30.0C
+2026-07-10 17:10:44 INFO  #14 [settle] 121.6V 0.080A 4.00W 30.0C
+2026-07-10 17:10:45 INFO  #15 [settle] 121.2V 0.080A 4.20W 30.0C
+2026-07-10 17:10:46 INFO  #16 [settle] 121.1V 0.074A 3.60W 30.0C
+2026-07-10 17:10:47 INFO  #17 [settle] 121.2V 0.074A 3.60W 30.0C
+2026-07-10 17:10:48 INFO  #18 [settle] 121.1V 0.076A 3.70W 30.0C
+2026-07-10 17:10:49 INFO  #19 [settle] 121.3V 0.075A 3.60W 30.0C
+2026-07-10 17:10:50 INFO  #20 [settle] 121.2V 0.074A 3.60W 30.0C
+2026-07-10 17:10:51 INFO  #21 [settle] 121.2V 0.075A 3.60W 30.0C
+2026-07-10 17:10:52 INFO  #22 [settle] 121.3V 0.082A 4.60W 30.0C
+2026-07-10 17:10:53 INFO  #23 [settle] 121.3V 0.075A 3.70W 30.0C
+2026-07-10 17:10:54 INFO  #24 [settle] 121.2V 0.084A 4.80W 30.0C
+2026-07-10 17:10:55 INFO  #25 [settle] 121.2V 0.066A 2.60W 30.0C
+2026-07-10 17:10:56 INFO  #26 [settle] 121.2V 0.072A 3.10W 30.0C
+2026-07-10 17:10:57 INFO  #27 [settle] 121.2V 0.082A 4.30W 30.0C
+2026-07-10 17:10:58 INFO  #28 [settle] 121.1V 0.086A 4.70W 30.0C
+2026-07-10 17:10:59 INFO  #29 [settle] 121.1V 0.084A 4.70W 30.0C
+2026-07-10 17:11:00 INFO  #30 [settle] 121.0V 0.082A 4.60W 30.0C
+2026-07-10 17:11:01 INFO  Idle stable (stdev 0.659 W)
+2026-07-10 17:11:01 INFO  Idle window for 30.0s...
+2026-07-10 17:11:01 INFO  #31 [idle] 121.1V 0.074A 3.60W 30.0C
+2026-07-10 17:11:02 INFO  #32 [idle] 121.2V 0.082A 4.30W 31.0C
+2026-07-10 17:11:03 INFO  #33 [idle] 121.2V 0.085A 4.70W 30.0C
+2026-07-10 17:11:04 INFO  #34 [idle] 121.7V 0.086A 4.80W 30.0C
+2026-07-10 17:11:05 INFO  #35 [idle] 121.7V 0.078A 4.00W 30.0C
+2026-07-10 17:11:07 INFO  #36 [idle] 121.7V 0.076A 3.90W 30.0C
+2026-07-10 17:11:08 INFO  #37 [idle] 121.6V 0.073A 3.60W 30.0C
+2026-07-10 17:11:09 INFO  #38 [idle] 121.6V 0.081A 4.40W 30.0C
+2026-07-10 17:11:10 INFO  #39 [idle] 121.8V 0.075A 3.70W 30.0C
+2026-07-10 17:11:11 INFO  #40 [idle] 121.7V 0.076A 3.60W 30.0C
+2026-07-10 17:11:12 INFO  #41 [idle] 121.8V 0.073A 3.60W 30.0C
+2026-07-10 17:11:13 INFO  #42 [idle] 121.8V 0.080A 3.70W 30.0C
+2026-07-10 17:11:14 INFO  #43 [idle] 121.8V 0.075A 3.70W 30.0C
+2026-07-10 17:11:15 INFO  #44 [idle] 121.8V 0.077A 3.90W 30.0C
+2026-07-10 17:11:16 INFO  #45 [idle] 121.8V 0.075A 3.70W 31.0C
+2026-07-10 17:11:17 INFO  #46 [idle] 121.8V 0.075A 3.60W 30.0C
+2026-07-10 17:11:18 INFO  #47 [idle] 121.7V 0.077A 4.00W 30.0C
+2026-07-10 17:11:19 INFO  #48 [idle] 121.7V 0.079A 4.20W 31.0C
+2026-07-10 17:11:20 INFO  #49 [idle] 121.8V 0.077A 3.70W 31.0C
+2026-07-10 17:11:21 INFO  #50 [idle] 121.7V 0.073A 3.60W 30.0C
+2026-07-10 17:11:22 INFO  #51 [idle] 121.7V 0.075A 3.60W 30.0C
+2026-07-10 17:11:23 INFO  #52 [idle] 121.6V 0.075A 3.60W 30.0C
+2026-07-10 17:11:24 INFO  #53 [idle] 121.6V 0.073A 3.50W 30.0C
+2026-07-10 17:11:25 INFO  #54 [idle] 121.6V 0.081A 4.50W 30.0C
+2026-07-10 17:11:26 INFO  #55 [idle] 121.6V 0.078A 4.00W 31.0C
+2026-07-10 17:11:27 INFO  #56 [idle] 121.6V 0.077A 3.80W 30.0C
+2026-07-10 17:11:28 INFO  #57 [idle] 121.6V 0.091A 5.60W 30.0C
+2026-07-10 17:11:29 INFO  #58 [idle] 121.6V 0.078A 4.00W 31.0C
+2026-07-10 17:11:30 INFO  #59 [idle] 121.6V 0.079A 4.40W 30.0C
+2026-07-10 17:11:31 INFO  #60 [idle] 121.6V 0.072A 3.50W 31.0C
+2026-07-10 17:11:31 INFO  Thermal gate: 46.0C <= 55.0C, proceeding
+2026-07-10 17:11:31 INFO  Launching benchmark 'local/power-bench-build-kernel-defconfig-1.0.0' on 192.168.1.58 ...
+2026-07-10 17:11:32 INFO  [remote] 
+2026-07-10 17:11:32 INFO  #61 [bench] 121.6V 0.144A 12.40W 31.0C
+2026-07-10 17:11:32 INFO  [remote] Test Description: power_bench automated run
+2026-07-10 17:11:33 INFO  [remote] 
+2026-07-10 17:11:33 INFO  [remote] Timed Linux Kernel Compilation 7.0:
+2026-07-10 17:11:33 INFO  [remote]     pts/build-linux-kernel-1.18.0 [Build: defconfig]
+2026-07-10 17:11:33 INFO  [remote]     Test 1 of 1
+2026-07-10 17:11:33 INFO  [remote]     Estimated Trial Run Count:    1
+2026-07-10 17:11:33 INFO  #62 [bench] 121.7V 0.190A 19.20W 30.0C
+2026-07-10 17:11:34 INFO  #63 [bench] 121.6V 0.088A 4.90W 30.0C
+2026-07-10 17:11:35 INFO  [remote]     Estimated Time To Completion: 3 Minutes [00:13 UTC]
+2026-07-10 17:11:35 INFO  #64 [bench] 121.7V 0.083A 4.50W 31.0C
+2026-07-10 17:11:36 INFO  #65 [bench] 121.6V 0.442A 46.30W 31.0C
+2026-07-10 17:11:37 INFO  #66 [bench] 121.6V 0.280A 30.40W 30.0C
+2026-07-10 17:11:38 INFO  #67 [bench] 121.6V 0.198A 19.80W 30.0C
+2026-07-10 17:11:39 INFO  #68 [bench] 121.6V 0.193A 19.70W 30.0C
+2026-07-10 17:11:40 INFO  #69 [bench] 121.6V 0.177A 17.60W 30.0C
+2026-07-10 17:11:41 INFO  #70 [bench] 121.6V 0.177A 17.50W 31.0C
+2026-07-10 17:11:42 INFO  #71 [bench] 121.6V 0.172A 16.30W 31.0C
+2026-07-10 17:11:43 INFO  #72 [bench] 121.6V 0.259A 27.60W 30.0C
+2026-07-10 17:11:43 INFO  [remote]         Running Pre-Test Script @ 00:11:35
+2026-07-10 17:11:44 INFO  #73 [bench] 121.7V 0.134A 11.00W 30.0C
+2026-07-10 17:11:45 INFO  #74 [bench] 121.7V 0.076A 3.90W 31.0C
+2026-07-10 17:11:46 INFO  #75 [bench] 121.6V 0.135A 11.40W 31.0C
+2026-07-10 17:11:47 INFO  #76 [bench] 121.6V 0.191A 19.20W 30.0C

@@ -1,0 +1,36 @@
+---
+# PCIe Active State Power Management. Saves idle bus power; may add a little latency.
+# Full enablement can require the boot param `pcie_aspm=force` (see kernel_params.yml) if
+# firmware hands ASPM control to the OS only when asked.
+# Apply:  ansible-playbook -i ansible/hosts ansible/optimizations/pcie_aspm.yml -e pcie_aspm_policy=powersave
+# Revert: reset_to_baseline.yml (restores 'default')
+- name: "pcie_aspm - set PCIe ASPM policy"
+  hosts: benchmarks
+  become: true
+  vars:
+    pcie_aspm_policy: powersave   # default | performance | powersave | powersupersave
+  tasks:
+    - name: Check ASPM control is available
+      stat:
+        path: /sys/module/pcie_aspm/parameters/policy
+      register: aspm_param
+
+    - name: Fail if ASPM policy control is unavailable
+      fail:
+        msg: >
+          /sys/module/pcie_aspm/parameters/policy missing — ASPM is not OS-controllable.
+          Firmware may own it; try booting with pcie_aspm=force via kernel_params.yml.
+      when: not aspm_param.stat.exists
+
+    - name: Set ASPM policy
+      shell: echo {{ pcie_aspm_policy }} > /sys/module/pcie_aspm/parameters/policy
+      changed_when: true
+
+    - name: Verify
+      shell: cat /sys/module/pcie_aspm/parameters/policy
+      register: aspm_now
+      changed_when: false
+
+    - name: Report
+      debug:
+        msg: "PCIe ASPM policy: {{ aspm_now.stdout }} (the active policy is shown in [brackets])"

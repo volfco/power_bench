@@ -1,0 +1,229 @@
+---
+- name: Install and configure Phoronix Test Suite
+  hosts: benchmarks
+  become: yes
+  vars:
+    pts_install_dir: /usr/local/share/phoronix-test-suite
+    pts_version: "10.8.4"
+    # Pre-installed up front — downloading/compiling a profile inside a measured run
+    # adds variable, non-compute power (plan.md "Risks & gotchas").
+    # llama-cpp is intentionally not a default here; the profile can require over
+    # 100 GB of download/environment space on current PTS metadata.
+    pts_tests:
+      - pts/build-linux-kernel
+
+  tasks:
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+        cache_valid_time: 3600
+      when: ansible_os_family == "Debian"
+
+    - name: Install dependencies
+      apt:
+        name:
+          - curl
+          - unzip
+          - build-essential
+          - autoconf
+          - automake
+          - bc
+          - bison
+          - php-cli
+          - php-xml
+          - php-zip
+          - php-gd
+          - php-mbstring
+          - php-curl
+          - python3
+          - python3-pip
+          - apt-file
+          - flex
+          - git
+          - gawk
+          - pkg-config
+          - cpio
+          - libglib2.0-dev
+          - libpng-dev
+          - libjpeg-dev
+          - libncurses5-dev
+          - libelf-dev
+          - libssl-dev
+          - mesa-utils
+          - vulkan-tools
+          - software-properties-common
+        state: present
+      when: ansible_os_family == "Debian"
+
+    - name: Install dependencies (RedHat)
+      yum:
+        name:
+          - curl
+          - unzip
+          - gcc
+          - gcc-c++
+          - make
+          - php-cli
+          - php-xml
+          - php-zip
+          - php-gd
+          - php-mbstring
+          - php-curl
+          - python3
+          - python3-pip
+          - git
+          - pkgconfig
+          - glib2-devel
+          - libpng-devel
+          - libjpeg-turbo-devel
+          - ncurses-devel
+        state: present
+      when: ansible_os_family == "RedHat"
+
+    - name: Check if Phoronix Test Suite is installed
+      stat:
+        path: /usr/local/bin/phoronix-test-suite
+      register: pts_installed
+
+    - name: Download Phoronix Test Suite
+      get_url:
+        url: "https://phoronix-test-suite.com/releases/phoronix-test-suite-{{ pts_version }}.tar.gz"
+        dest: /tmp/pts-stable.tar.gz
+        mode: '0644'
+      when: not pts_installed.stat.exists
+
+    - name: Extract Phoronix Test Suite
+      unarchive:
+        src: /tmp/pts-stable.tar.gz
+        dest: /tmp/
+        remote_src: yes
+      when: not pts_installed.stat.exists
+
+    - name: Find extracted PTS directory
+      find:
+        paths: /tmp
+        patterns:
+          - "phoronix-test-suite"
+          - "phoronix-test-suite-*"
+        file_type: directory
+      register: pts_extracted
+
+    - name: Install Phoronix Test Suite
+      command: ./install-sh /usr/local
+      args:
+        chdir: "{{ pts_extracted.files[0].path }}"
+      when: not pts_installed.stat.exists and pts_extracted.files | length > 0
+
+    - name: Ensure PTS is executable
+      file:
+        path: /usr/local/bin/phoronix-test-suite
+        mode: '0755'
+
+    # PTS reads the connecting user's ~/.phoronix-test-suite/user-config.xml and
+    # will block on prompts unless batch mode is configured. Write it as that user
+    # (not root) so it applies to the account run_benchmark.py SSHes in as. Facts are
+    # gathered with become, so ansible_env.HOME would be /root — resolve the real home.
+    - name: Resolve the SSH user's home directory
+      become: false
+      command: sh -c 'echo $HOME'
+      register: user_home
+      # The following per-user paths depend on this read-only command even when
+      # the caller validates an end-to-end playbook with --check.
+      check_mode: false
+      changed_when: false
+
+    - name: Ensure per-user PTS config directory exists
+      become: false
+      file:
+        path: "{{ user_home.stdout }}/.phoronix-test-suite"
+        state: directory
+        mode: '0755'
+
+    - name: Configure non-interactive batch mode
+      become: false
+      copy:
+        dest: "{{ user_home.stdout }}/.phoronix-test-suite/user-config.xml"
+        force: false   # don't clobber an existing custom config; PTS fills missing keys with defaults
+        mode: '0644'
+        content: |
+          <?xml version="1.0"?>
+          <PhoronixTestSuite>
+            <Options>
+              <Modules>
+                <AutoLoadModules></AutoLoadModules>
+              </Modules>
+              <BatchMode>
+                <Configured>TRUE</Configured>
+                <SaveResults>TRUE</SaveResults>
+                <OpenBrowser>FALSE</OpenBrowser>
+                <UploadResults>FALSE</UploadResults>
+                <PromptForTestIdentifier>FALSE</PromptForTestIdentifier>
+                <PromptForTestDescription>FALSE</PromptForTestDescription>
+                <PromptSaveName>FALSE</PromptSaveName>
+                <RunAllTestCombinations>FALSE</RunAllTestCombinations>
+              </BatchMode>
+              <General>
+                <UsageReporting>FALSE</UsageReporting>
+              </General>
+              <Testing>
+                <SaveSystemLogs>TRUE</SaveSystemLogs>
+              </Testing>
+            </Options>
+          </PhoronixTestSuite>
+
+    - name: Disable auto-loaded PTS modules for measured runs
+      become: false
+      replace:
+        path: "{{ user_home.stdout }}/.phoronix-test-suite/user-config.xml"
+        regexp: '<AutoLoadModules>.*</AutoLoadModules>'
+        replace: '<AutoLoadModules></AutoLoadModules>'
+
+    - name: Ensure local PTS suite directory exists
+      become: false
+      file:
+        path: "{{ user_home.stdout }}/.phoronix-test-suite/test-suites/local/power-bench-build-kernel-defconfig-1.0.0"
+        state: directory
+        mode: '0755'
+
+    - name: Install defconfig-only Linux kernel build suite
+      become: false
+      copy:
+        dest: "{{ user_home.stdout }}/.phoronix-test-suite/test-suites/local/power-bench-build-kernel-defconfig-1.0.0/suite-definition.xml"
+        mode: '0644'
+        content: |
+          <?xml version="1.0"?>
+          <PhoronixTestSuite>
+            <SuiteInformation>
+              <Title>Power Bench Build Linux Kernel Defconfig</Title>
+              <Version>1.0.0</Version>
+              <TestType>Processor</TestType>
+              <Description>Power Bench local suite: build-linux-kernel defconfig only.</Description>
+              <Maintainer>power_bench</Maintainer>
+            </SuiteInformation>
+            <Execute>
+              <Test>pts/build-linux-kernel</Test>
+              <Arguments>defconfig</Arguments>
+              <Description>Build: defconfig</Description>
+            </Execute>
+          </PhoronixTestSuite>
+
+    # Installing (download + compile) happens here, up front — never inside a measured
+    # run. batch-install re-running against an installed test is a cheap no-op; the
+    # creates glob skips it entirely once the versioned install dir exists.
+    - name: Pre-install test profiles (downloads + compiles; can take a while)
+      become: false
+      command: phoronix-test-suite batch-install {{ item }}
+      args:
+        creates: "{{ user_home.stdout }}/.phoronix-test-suite/installed-tests/{{ item }}-*"
+      environment:
+        PTS_SILENT_MODE: "1"
+      loop: "{{ pts_tests }}"
+
+    - name: Display installation summary
+      debug:
+        msg:
+          - "Phoronix Test Suite installed at: {{ pts_install_dir }}"
+          - "Binary available at: /usr/local/bin/phoronix-test-suite"
+          - "Batch mode configured for user: {{ user_home.stdout }}/.phoronix-test-suite/user-config.xml"
+          - "Pre-installed tests: {{ pts_tests | join(', ') }}"
+          - "Run 'phoronix-test-suite default-run <test>' to execute benchmarks with default profile options"

@@ -1,0 +1,45 @@
+---
+# intel_pstate / HWP tuning — frequency ceiling and HWP energy-performance preference (EPP).
+# EPP biases the hardware governor toward power or performance without changing the
+# governor itself. max_perf_pct caps the top frequency.
+# Apply:  ansible-playbook -i ansible/hosts ansible/optimizations/p_states.yml \
+#             -e energy_perf_preference=power -e pstate_max_perf_pct=80
+# Revert: reset_to_baseline.yml (EPP=default, max_perf_pct=100)
+- name: "p_states - intel_pstate / HWP energy-performance tuning"
+  hosts: benchmarks
+  become: true
+  vars:
+    energy_perf_preference: power   # performance | balance_performance | balance_power | power | default
+    pstate_max_perf_pct: 100        # cap max frequency as % of turbo max
+    pstate_min_perf_pct: 0          # 0 = leave kernel default minimum untouched
+  tasks:
+    - name: Set HWP energy-performance preference on all CPUs
+      shell: |
+        for f in /sys/devices/system/cpu/cpu*/cpufreq/energy_performance_preference; do
+          [ -w "$f" ] && echo "{{ energy_perf_preference }}" > "$f" || true
+        done
+      failed_when: false
+      changed_when: true
+
+    - name: Set intel_pstate max_perf_pct
+      shell: echo {{ pstate_max_perf_pct | int }} > /sys/devices/system/cpu/intel_pstate/max_perf_pct
+      failed_when: false
+      changed_when: true
+
+    - name: Set intel_pstate min_perf_pct
+      shell: echo {{ pstate_min_perf_pct | int }} > /sys/devices/system/cpu/intel_pstate/min_perf_pct
+      when: pstate_min_perf_pct | int > 0
+      failed_when: false
+      changed_when: true
+
+    - name: Verify
+      shell: |
+        echo "EPP=$(cat /sys/devices/system/cpu/cpu0/cpufreq/energy_performance_preference 2>/dev/null || echo n/a)"
+        echo "max_perf_pct=$(cat /sys/devices/system/cpu/intel_pstate/max_perf_pct 2>/dev/null || echo n/a)"
+        echo "min_perf_pct=$(cat /sys/devices/system/cpu/intel_pstate/min_perf_pct 2>/dev/null || echo n/a)"
+      register: pstate_now
+      changed_when: false
+
+    - name: Report
+      debug:
+        var: pstate_now.stdout_lines

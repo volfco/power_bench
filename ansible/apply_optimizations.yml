@@ -1,0 +1,421 @@
+---
+# Apply a per-iteration power-optimization variable file to the test host.
+#
+# Workflow (see plan.md): each iteration runs this on a FRESHLY BOOTED node, runs the
+# benchmark, then reboots (run_benchmark.py --reboot). Every knob below is applied at
+# RUNTIME (non-persistent), so the end-of-test reboot is what resets the host to baseline.
+# A varfile therefore only needs to list the knobs it changes (non-default values); any
+# knob omitted from the varfile stays at the fresh-boot default. See ansible/vars/defaults.yml.
+#
+# The ONE exception is kernel boot params: GRUB persists across reboots, so this play
+# reconciles the managed cmdline fragment to `kernel_params` (default []) EVERY run —
+# clearing leftovers from a previous iteration — and reboots if it changed.
+#
+# Usage:
+#   ansible-playbook -i ansible/hosts ansible/apply_optimizations.yml -e @ansible/vars/<iter>.yml
+#   ansible-playbook -i ansible/hosts ansible/apply_optimizations.yml -e cpu_governor=powersave   # manual single knob
+#
+# NOTE: this knob logic is intentionally duplicated from the standalone
+# ansible/optimizations/*.yml playbooks (kept for manual single-knob use). This file is
+# authoritative for the sweep and uses NON-PERSISTENT semantics (services stopped not
+# disabled, scx started not enabled) so the end-of-test reboot resets the host. The
+# standalones use persistent semantics — do not mix them into a sweep. Keep both in sync
+# if you change a knob. See "Risks & gotchas" in plan.md.
+- name: "Apply power-optimization varfile"
+  hosts: benchmarks
+  become: true
+  vars:
+    kernel_params: []
+  tasks:
+    # ---------------- kernel boot params (persistent -> reconcile every run) ----------
+    - name: Set the power_bench-managed GRUB cmdline fragment
+      lineinfile:
+        path: /etc/default/grub
+        regexp: '^GRUB_CMDLINE_LINUX_POWERBENCH='
+        line: "GRUB_CMDLINE_LINUX_POWERBENCH=\"{{ kernel_params | join(' ') }}\""
+        create: true
+      register: grub_frag
+
+    - name: Reference the managed fragment from GRUB_CMDLINE_LINUX (idempotent)
+      lineinfile:
+        path: /etc/default/grub
+        regexp: '^GRUB_CMDLINE_LINUX="\$\{GRUB_CMDLINE_LINUX\} \$\{GRUB_CMDLINE_LINUX_POWERBENCH\}"$'
+        line: 'GRUB_CMDLINE_LINUX="${GRUB_CMDLINE_LINUX} ${GRUB_CMDLINE_LINUX_POWERBENCH}"'
+        insertafter: '^GRUB_CMDLINE_LINUX_POWERBENCH='
+
+    - name: Regenerate GRUB (Debian)
+      command: update-grub
+      when: ansible_os_family == "Debian" and grub_frag.changed
+
+    - name: Regenerate GRUB (RedHat / BIOS)
+      command: grub2-mkconfig -o /boot/grub2/grub.cfg
+      when: ansible_os_family == "RedHat" and grub_frag.changed
+      failed_when: false
+
+    - name: Regenerate GRUB (RedHat / UEFI)
+      command: grub2-mkconfig -o /boot/efi/EFI/{{ 'fedora' if ansible_distribution == 'Fedora' else 'redhat' }}/grub.cfg
+      when: ansible_os_family == "RedHat" and grub_frag.changed
+      failed_when: false
+
+    - name: Reboot if the kernel cmdline changed, then continue on the rebooted host
+      reboot:
+        msg: "power_bench kernel_params apply"
+        reboot_timeout: 600
+      when: grub_frag.changed
+
+    # ---------------- runtime knobs: applied only when the varfile defines them --------
+    - name: CPU governor
+      shell: |
+        for c in /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor; do
+          [ -w "$c" ] && echo "{{ cpu_governor }}" > "$c" || true
+        done
+      when: cpu_governor is defined
+      changed_when: true
+
+    - name: Turbo / boost
+      shell: |
+        if [ -e /sys/devices/system/cpu/intel_pstate/no_turbo ]; then
+          echo {{ 0 if turbo_enabled else 1 }} > /sys/devices/system/cpu/intel_pstate/no_turbo
+        elif [ -e /sys/devices/system/cpu/cpufreq/boost ]; then
+          echo {{ 1 if turbo_enabled else 0 }} > /sys/devices/system/cpu/cpufreq/boost
+        fi
+      when: turbo_enabled is defined
+      changed_when: true
+
+    - name: C-states (enable all)
+      shell: |
+        for f in /sys/devices/system/cpu/cpu*/cpuidle/state*/disable; do [ -w "$f" ] && echo 0 > "$f" || true; done
+      when: cstate_limit is defined and (cstate_limit | int) < 0
+      changed_when: true
+
+    - name: C-states (limit to index <= cstate_limit)
+      shell: |
+        for d in /sys/devices/system/cpu/cpu*/cpuidle/state*/; do
+          idx=$(basename "$d" | sed 's/state//'); val=0
+          [ "$idx" -gt {{ cstate_limit | int }} ] && val=1
+          [ -w "$d/disable" ] && echo $val > "$d/disable" || true
+        done
+      when: cstate_limit is defined and (cstate_limit | int) >= 0
+      changed_when: true
+
+    - name: HWP energy-performance preference (EPP)
+      shell: |
+        for f in /sys/devices/system/cpu/cpu*/cpufreq/energy_performance_preference; do
+          [ -w "$f" ] && echo "{{ energy_perf_preference }}" > "$f" || true
+        done
+      when: energy_perf_preference is defined
+      failed_when: false
+      changed_when: true
+
+    - name: intel_pstate max_perf_pct
+      shell: echo {{ pstate_max_perf_pct | int }} > /sys/devices/system/cpu/intel_pstate/max_perf_pct
+      when: pstate_max_perf_pct is defined
+      failed_when: false
+      changed_when: true
+
+    - name: intel_pstate min_perf_pct
+      shell: echo {{ pstate_min_perf_pct | int }} > /sys/devices/system/cpu/intel_pstate/min_perf_pct
+      when: pstate_min_perf_pct is defined
+      failed_when: false
+      changed_when: true
+
+    - name: PCIe ASPM policy
+      shell: echo {{ pcie_aspm_policy }} > /sys/module/pcie_aspm/parameters/policy
+      when: pcie_aspm_policy is defined
+      failed_when: false
+      changed_when: true
+
+    - name: Block I/O scheduler
+      shell: |
+        for q in /sys/block/*/queue/scheduler; do
+          dev=$(echo "$q" | cut -d/ -f4); case "$dev" in loop*|ram*|zram*|dm-*|sr*) continue;; esac
+          grep -qw "{{ io_scheduler }}" "$q" && echo "{{ io_scheduler }}" > "$q" || true
+        done
+      when: io_scheduler is defined
+      changed_when: true
+
+    - name: USB autosuspend
+      shell: |
+        for f in /sys/bus/usb/devices/*/power/control; do
+          [ -w "$f" ] && echo {{ 'auto' if usb_autosuspend else 'on' }} > "$f" || true
+        done
+      when: usb_autosuspend is defined
+      changed_when: true
+
+    - name: SATA link power management
+      shell: |
+        for p in /sys/class/scsi_host/host*/link_power_management_policy; do
+          [ -w "$p" ] && echo "{{ sata_link_pm }}" > "$p" || true
+        done
+      when: sata_link_pm is defined
+      failed_when: false
+      changed_when: true
+
+    - name: HDD APM (rotational disks only)
+      shell: |
+        command -v hdparm >/dev/null 2>&1 || exit 0
+        for d in /sys/block/sd*; do
+          [ -e "$d" ] || continue
+          r=$(cat "$d/queue/rotational" 2>/dev/null || echo 0)
+          [ "$r" = "1" ] && hdparm -B {{ hdd_apm_level | int }} "/dev/$(basename $d)" >/dev/null 2>&1 || true
+        done
+      when: hdd_apm_level is defined
+      failed_when: false
+      changed_when: true
+
+    - name: GPU power profile
+      shell: |
+        for c in /sys/class/drm/card*/device; do
+          [ -w "$c/power_dpm_state" ] && \
+            echo {{ 'battery' if gpu_power_profile == 'low' else 'balanced' }} > "$c/power_dpm_state" || true
+          [ -w "$c/power_dpm_force_performance_level" ] && \
+            echo {{ 'low' if gpu_power_profile == 'low' else 'auto' }} > "$c/power_dpm_force_performance_level" || true
+        done
+      when: gpu_power_profile is defined
+      failed_when: false
+      changed_when: true
+
+    - name: Stop services for this run (runtime only; the reboot restores them)
+      systemd:
+        name: "{{ item }}"
+        state: stopped
+      loop: "{{ services_to_disable | default([]) }}"
+      when: services_to_disable is defined
+      failed_when: false
+
+    - name: NIC power (EEE / Wake-on-LAN / wifi power-save)
+      shell: |
+        IF="{{ nic_interface | default('') }}"
+        [ -n "$IF" ] || IF=$(ip route show default | awk '{print $5; exit}')
+        [ -n "$IF" ] || exit 0
+        ethtool --set-eee "$IF" eee {{ 'on' if nic_power_save else 'off' }} 2>/dev/null || true
+        ethtool -s "$IF" wol {{ 'd' if nic_power_save else 'g' }} 2>/dev/null || true
+        iw dev "$IF" set power_save {{ 'on' if nic_power_save else 'off' }} 2>/dev/null || true
+      when: nic_power_save is defined
+      failed_when: false
+      changed_when: true
+
+    # ---------------- sched_ext: always clean the slate; load only if requested --------
+    - name: Ensure no leftover SCX scheduler (clean baseline)
+      systemd:
+        name: scx-power.service
+        state: stopped
+        enabled: false
+      failed_when: false
+      when: (scx_scheduler | default('none')) == 'none'
+
+    - name: Load requested SCX scheduler (non-persistent — cleared on reboot)
+      when: (scx_scheduler | default('none')) != 'none'
+      block:
+        - name: Verify kernel sched_ext support
+          stat:
+            path: /sys/kernel/sched_ext
+          register: scx_sysfs
+        - name: Fail if sched_ext unavailable
+          fail:
+            msg: "kernel {{ ansible_kernel }} lacks sched_ext (need >= 6.12 with CONFIG_SCHED_CLASS_EXT)"
+          when: not scx_sysfs.stat.exists
+        - name: Install SCX (Debian)
+          apt: { name: scx, state: present, update_cache: true }
+          when: ansible_os_family == "Debian"
+          failed_when: false
+        - name: Install SCX (RedHat)
+          dnf: { name: scx-scheds, state: present }
+          when: ansible_os_family == "RedHat"
+          failed_when: false
+        - name: Resolve scheduler binary
+          shell: "command -v {{ scx_scheduler }}"
+          register: scx_bin
+          changed_when: false
+          failed_when: scx_bin.rc != 0
+        - name: Install scx-power.service unit
+          copy:
+            dest: /etc/systemd/system/scx-power.service
+            mode: '0644'
+            content: |
+              [Unit]
+              Description=sched_ext scheduler {{ scx_scheduler }} (power_bench)
+              After=multi-user.target
+              [Service]
+              Type=simple
+              ExecStart={{ scx_bin.stdout }} {{ scx_flags | default('') }}
+              Restart=on-failure
+              KillSignal=SIGINT
+              TimeoutStopSec=10
+              [Install]
+              WantedBy=multi-user.target
+        - name: Reload systemd
+          systemd:
+            daemon_reload: true
+        - name: Start scx-power.service (NOT enabled, so a reboot clears it)
+          systemd:
+            name: scx-power.service
+            state: restarted
+            enabled: false
+        - name: Wait for the scheduler to attach
+          shell: cat /sys/kernel/sched_ext/state
+          register: scx_state
+          until: scx_state.stdout == "enabled"
+          retries: 10
+          delay: 1
+          changed_when: false
+
+    # ---------------- verify: read back every requested knob; fail loudly -------------
+    # Most apply tasks above are best-effort writes (`|| true`, failed_when: false); a
+    # write that silently failed would mislabel the run as its variant while actually
+    # measuring baseline (plan.md "Silent apply failures"). Each verify task fails when
+    # the requested value is not in effect, or when the interface for a requested knob
+    # is entirely absent. GPU / HDD APM / NIC stay best-effort: no portable read-back.
+    - name: Verify CPU governor
+      shell: |
+        found=0
+        for c in /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor; do
+          [ -e "$c" ] || continue
+          found=1
+          [ "$(cat "$c")" = "{{ cpu_governor }}" ] || { echo "MISMATCH $c=$(cat "$c")"; exit 1; }
+        done
+        [ "$found" = "1" ] || { echo "NO INTERFACE: cpufreq scaling_governor"; exit 1; }
+      when: cpu_governor is defined
+      changed_when: false
+
+    - name: Verify turbo / boost
+      shell: |
+        if [ -e /sys/devices/system/cpu/intel_pstate/no_turbo ]; then
+          [ "$(cat /sys/devices/system/cpu/intel_pstate/no_turbo)" = "{{ 0 if turbo_enabled else 1 }}" ] \
+            || { echo "MISMATCH no_turbo=$(cat /sys/devices/system/cpu/intel_pstate/no_turbo)"; exit 1; }
+        elif [ -e /sys/devices/system/cpu/cpufreq/boost ]; then
+          [ "$(cat /sys/devices/system/cpu/cpufreq/boost)" = "{{ 1 if turbo_enabled else 0 }}" ] \
+            || { echo "MISMATCH boost=$(cat /sys/devices/system/cpu/cpufreq/boost)"; exit 1; }
+        else
+          echo "NO INTERFACE: turbo/boost"; exit 1
+        fi
+      when: turbo_enabled is defined
+      changed_when: false
+
+    - name: Verify C-state limits
+      shell: |
+        found=0
+        for d in /sys/devices/system/cpu/cpu*/cpuidle/state*; do
+          [ -e "$d/disable" ] || continue
+          found=1
+          idx=$(basename "$d" | sed 's/state//')
+          want=0
+          [ {{ cstate_limit | int }} -ge 0 ] && [ "$idx" -gt {{ cstate_limit | int }} ] && want=1
+          [ "$(cat "$d/disable")" = "$want" ] || { echo "MISMATCH $d/disable=$(cat "$d/disable") want=$want"; exit 1; }
+        done
+        [ "$found" = "1" ] || { echo "NO INTERFACE: cpuidle"; exit 1; }
+      when: cstate_limit is defined
+      changed_when: false
+
+    - name: Verify energy-performance preference
+      shell: |
+        f=/sys/devices/system/cpu/cpu0/cpufreq/energy_performance_preference
+        [ -e "$f" ] || { echo "NO INTERFACE: EPP"; exit 1; }
+        [ "$(cat "$f")" = "{{ energy_perf_preference }}" ] || { echo "MISMATCH EPP=$(cat "$f")"; exit 1; }
+      when: energy_perf_preference is defined
+      changed_when: false
+
+    # Note: the kernel may clamp perf pct to a hardware floor; these compare literally.
+    - name: Verify intel_pstate max_perf_pct
+      shell: |
+        f=/sys/devices/system/cpu/intel_pstate/max_perf_pct
+        [ -e "$f" ] || { echo "NO INTERFACE: intel_pstate"; exit 1; }
+        [ "$(cat "$f")" = "{{ pstate_max_perf_pct | int }}" ] || { echo "MISMATCH max_perf_pct=$(cat "$f")"; exit 1; }
+      when: pstate_max_perf_pct is defined
+      changed_when: false
+
+    - name: Verify intel_pstate min_perf_pct
+      shell: |
+        f=/sys/devices/system/cpu/intel_pstate/min_perf_pct
+        [ -e "$f" ] || { echo "NO INTERFACE: intel_pstate"; exit 1; }
+        [ "$(cat "$f")" = "{{ pstate_min_perf_pct | int }}" ] || { echo "MISMATCH min_perf_pct=$(cat "$f")"; exit 1; }
+      when: pstate_min_perf_pct is defined
+      changed_when: false
+
+    - name: Verify PCIe ASPM policy
+      shell: |
+        f=/sys/module/pcie_aspm/parameters/policy
+        [ -e "$f" ] || { echo "NO INTERFACE: pcie_aspm"; exit 1; }
+        grep -q '\[{{ pcie_aspm_policy }}\]' "$f" || { echo "MISMATCH policy=$(cat "$f")"; exit 1; }
+      when: pcie_aspm_policy is defined
+      changed_when: false
+
+    - name: Verify block I/O scheduler
+      shell: |
+        found=0
+        for q in /sys/block/*/queue/scheduler; do
+          dev=$(echo "$q" | cut -d/ -f4); case "$dev" in loop*|ram*|zram*|dm-*|sr*) continue;; esac
+          grep -qw "{{ io_scheduler }}" "$q" || continue
+          found=1
+          grep -q '\[{{ io_scheduler }}\]' "$q" || { echo "MISMATCH $dev: $(cat "$q")"; exit 1; }
+        done
+        [ "$found" = "1" ] || { echo "NO INTERFACE: no device supports {{ io_scheduler }}"; exit 1; }
+      when: io_scheduler is defined
+      changed_when: false
+
+    - name: Verify USB autosuspend
+      shell: |
+        want="{{ 'auto' if usb_autosuspend else 'on' }}"
+        found=0
+        for f in /sys/bus/usb/devices/*/power/control; do
+          [ -w "$f" ] || continue
+          found=1
+          [ "$(cat "$f")" = "$want" ] || { echo "MISMATCH $f=$(cat "$f")"; exit 1; }
+        done
+        [ "$found" = "1" ] || { echo "NO INTERFACE: usb power control"; exit 1; }
+      when: usb_autosuspend is defined
+      changed_when: false
+
+    - name: Verify SATA link power management
+      shell: |
+        found=0
+        for p in /sys/class/scsi_host/host*/link_power_management_policy; do
+          [ -w "$p" ] || continue
+          found=1
+          [ "$(cat "$p")" = "{{ sata_link_pm }}" ] || { echo "MISMATCH $p=$(cat "$p")"; exit 1; }
+        done
+        [ "$found" = "1" ] || { echo "NO INTERFACE: sata link_power_management_policy"; exit 1; }
+      when: sata_link_pm is defined
+      changed_when: false
+
+    - name: Verify services stopped
+      shell: |
+        for s in {{ services_to_disable | default([]) | join(' ') }}; do
+          state=$(systemctl is-active "$s" 2>/dev/null || true)
+          [ "$state" = "active" ] && { echo "MISMATCH $s still active"; exit 1; }
+        done
+        exit 0
+      when: (services_to_disable | default([])) | length > 0
+      changed_when: false
+
+    - name: Verify SCX scheduler attached
+      shell: |
+        st=$(cat /sys/kernel/sched_ext/state 2>/dev/null) || { echo "NO INTERFACE: sched_ext"; exit 1; }
+        [ "$st" = "enabled" ] || { echo "MISMATCH sched_ext state=$st"; exit 1; }
+        ops=$(cat /sys/kernel/sched_ext/root/ops 2>/dev/null || echo "")
+        # An ops name is implementation-defined and can include a build ID;
+        # e.g. scx_lavd v1.1.1 reports lavd_1.1.1_x86_64_unknown_linux_gnu.
+        # The service is restarted from the requested resolved executable, so
+        # an enabled sched_ext state is the authoritative apply check here.
+        echo "sched_ext state=$st ops=${ops:-unknown}"
+      when: (scx_scheduler | default('none')) != 'none'
+      changed_when: false
+
+    - name: Verify kernel params on the live cmdline
+      shell: |
+        for p in {{ kernel_params | join(' ') }}; do
+          grep -q -- "$p" /proc/cmdline || { echo "MISSING from /proc/cmdline: $p"; exit 1; }
+        done
+      when: kernel_params | length > 0
+      changed_when: false
+
+    - name: Report applied configuration
+      debug:
+        msg: >
+          Applied: governor={{ cpu_governor | default('-') }} turbo={{ turbo_enabled | default('-') }}
+          cstate_limit={{ cstate_limit | default('-') }} epp={{ energy_perf_preference | default('-') }}
+          max_perf_pct={{ pstate_max_perf_pct | default('-') }} aspm={{ pcie_aspm_policy | default('-') }}
+          io={{ io_scheduler | default('-') }} usb_autosuspend={{ usb_autosuspend | default('-') }}
+          sata={{ sata_link_pm | default('-') }} gpu={{ gpu_power_profile | default('-') }}
+          nic_power_save={{ nic_power_save | default('-') }} scx={{ scx_scheduler | default('none') }}
+          kernel_params='{{ kernel_params | join(' ') }}'

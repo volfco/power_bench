@@ -1,0 +1,13 @@
+# Confirmed energy-first load profile for the current rig.
+#
+# Six valid repeats retained 92.85% of baseline compile performance while reducing
+# fixed-work compile energy by 18.25%. This passes a 90% performance floor, but fails
+# the project's original 95% floor and 20% energy-reduction target. Do not stack it
+# with conservative_idle.yml: ASPM powersave did not reduce compile energy.
+#
+# Apply:
+#   ansible-playbook -i ansible/hosts ansible/apply_optimizations.yml \
+#     -e @ansible/profiles/relaxed_load.yml
+# Revert without reboot:
+#   ansible-playbook -i ansible/hosts ansible/reset_to_baseline.yml
+pstate_max_perf_pct: 80

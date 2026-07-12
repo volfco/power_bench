@@ -1,0 +1,37 @@
+---
+# Turbo / boost control. Turbo can nearly double package power for marginal throughput,
+# so disabling it is often a perf-per-watt win on sustained loads.
+# Apply (disable): ansible-playbook -i ansible/hosts ansible/optimizations/turbo_boost.yml -e turbo_enabled=false
+# Revert: reset_to_baseline.yml (re-enables turbo/boost)
+- name: "turbo_boost - enable/disable CPU turbo boost"
+  hosts: benchmarks
+  become: true
+  vars:
+    turbo_enabled: false
+  tasks:
+    - name: Detect intel_pstate turbo interface
+      stat:
+        path: /sys/devices/system/cpu/intel_pstate/no_turbo
+      register: intel_no_turbo
+
+    - name: Set Intel turbo (no_turbo = inverse of turbo_enabled)
+      shell: echo {{ 0 if turbo_enabled else 1 }} > /sys/devices/system/cpu/intel_pstate/no_turbo
+      when: intel_no_turbo.stat.exists
+      changed_when: true
+
+    - name: Set cpufreq boost (AMD / acpi-cpufreq)
+      shell: echo {{ 1 if turbo_enabled else 0 }} > /sys/devices/system/cpu/cpufreq/boost
+      when: not intel_no_turbo.stat.exists
+      failed_when: false
+      changed_when: true
+
+    - name: Verify
+      shell: |
+        echo "intel_no_turbo=$(cat /sys/devices/system/cpu/intel_pstate/no_turbo 2>/dev/null || echo n/a)"
+        echo "cpufreq_boost=$(cat /sys/devices/system/cpu/cpufreq/boost 2>/dev/null || echo n/a)"
+      register: turbo_now
+      changed_when: false
+
+    - name: Report
+      debug:
+        msg: "turbo_enabled={{ turbo_enabled }} -> {{ turbo_now.stdout_lines }} (no_turbo: 0=on/1=off; boost: 1=on/0=off)"

@@ -1,0 +1,9 @@
+[project]
+name = "power-bench"
+version = "0.1.0"
+description = "Add your description here"
+requires-python = ">=3.10"
+dependencies = [
+    "bleak>=0.21",
+    "duckdb>=1.0",
+]

@@ -1,0 +1,127 @@
+---
+# Guarded, meter-free package-residency diagnostic for the active NIC hypothesis.
+# The imported preflight aborts before this play when the live SSH path uses the NIC.
+# Every temporary state change is restored in `always`, including on sample failure.
+#
+# Do not run until management has moved to a verified independent interface:
+#   ansible-playbook -i ansible/hosts ansible/diagnose_nic_residency.yml \
+#     -e nic_under_test=enp172s0 -e diagnostic_mode=link_down
+- import_playbook: preflight_nic_isolation.yml
+
+- name: Compare package residency with the isolated NIC link down
+  hosts: benchmarks
+  become: true
+  gather_facts: false
+  vars:
+    nic_under_test: enp172s0
+    diagnostic_mode: link_down
+    residency_seconds: 20
+    turbostat_columns: >-
+      Busy%,Bzy_MHz,CPU%c1,CPU%c6,CPU%c7,Pkg%pc2,Pkg%pc3,Pkg%pc6,Pkg%pc8,PkgWatt
+  tasks:
+    - name: Limit this harness to the reviewed link-down probe
+      assert:
+        that:
+          - diagnostic_mode == 'link_down'
+        fail_msg: >-
+          Unsupported diagnostic_mode={{ diagnostic_mode }}. Only link_down has a
+          reviewed restore path; do not improvise EEE or speed changes here.
+
+    - name: Capture original ASPM policy
+      shell: |
+        sed -n 's/.*\[\([^]]*\)\].*/\1/p' /sys/module/pcie_aspm/parameters/policy
+      register: original_aspm
+      changed_when: false
+
+    - name: Capture original NIC administrative state
+      command: "ip -o link show dev {{ nic_under_test }}"
+      register: original_nic_link
+      changed_when: false
+
+    - name: Record whether the NIC was administratively up
+      set_fact:
+        nic_was_up: "{{ original_nic_link.stdout is regex('.*<[^>]*UP[,>].*') }}"
+
+    - name: Verify turbostat is available
+      command: turbostat --version
+      register: turbostat_version
+      changed_when: false
+
+    - name: Run guarded link-down comparison
+      block:
+        - name: Select the confirmed ASPM powersave policy
+          shell: echo powersave > /sys/module/pcie_aspm/parameters/policy
+          changed_when: true
+
+        - name: Sample linked package residency
+          command:
+            argv:
+              - turbostat
+              - --quiet
+              - --Summary
+              - --show
+              - "{{ turbostat_columns }}"
+              - --interval
+              - "1"
+              - --num_iterations
+              - "{{ residency_seconds }}"
+          register: linked_residency
+          changed_when: false
+
+        - name: Re-resolve the controller route immediately before link down
+          command: "ip route get {{ controller_ip }}"
+          register: final_controller_route
+          changed_when: false
+
+        - name: Reconfirm the NIC is not carrying management traffic
+          assert:
+            that:
+              - "(' dev ' ~ nic_under_test ~ ' ') not in (' ' ~ final_controller_route.stdout ~ ' ')"
+              - ssh_target_interface.stdout != nic_under_test
+            fail_msg: >-
+              Management routing changed after preflight. Refusing to lower
+              {{ nic_under_test }}. Route: {{ final_controller_route.stdout }}.
+
+        - name: Lower the isolated NIC link
+          command: "ip link set dev {{ nic_under_test }} down"
+          changed_when: true
+
+        - name: Allow package state to settle
+          pause:
+            seconds: 5
+
+        - name: Sample package residency with the link down
+          command:
+            argv:
+              - turbostat
+              - --quiet
+              - --Summary
+              - --show
+              - "{{ turbostat_columns }}"
+              - --interval
+              - "1"
+              - --num_iterations
+              - "{{ residency_seconds }}"
+          register: link_down_residency
+          changed_when: false
+
+      always:
+        - name: Restore NIC administrative-up state
+          command: "ip link set dev {{ nic_under_test }} up"
+          when: nic_was_up | bool
+          changed_when: true
+
+        - name: Restore original ASPM policy
+          shell: "echo {{ original_aspm.stdout }} > /sys/module/pcie_aspm/parameters/policy"
+          when: original_aspm.stdout | length > 0
+          changed_when: true
+
+        - name: Report linked residency samples
+          debug:
+            var: linked_residency.stdout_lines
+          when: linked_residency is defined and linked_residency.stdout_lines is defined
+
+        - name: Report link-down residency samples
+          debug:
+            var: link_down_residency.stdout_lines
+          when: link_down_residency is defined and link_down_residency.stdout_lines is defined

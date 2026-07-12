@@ -1,0 +1,30 @@
+---
+# Baseline capture (priority #1). Reads the stock configuration; changes NOTHING.
+# Run once on a freshly-reset host to document the reference state. The same fields are
+# also captured per-run into the `runs` table by run_benchmark.gather_host_info.
+- name: "baseline - capture stock configuration"
+  hosts: benchmarks
+  become: true
+  gather_facts: true
+  tasks:
+    - name: Collect baseline configuration
+      shell: |
+        echo "kernel: $(uname -r)"
+        echo "cpu: $(LC_ALL=C lscpu | sed -n 's/^Model name:[[:space:]]*//p' | head -1)"
+        echo "cores: $(nproc)"
+        echo "governor: $(cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor 2>/dev/null)"
+        echo "available_governors: $(cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_available_governors 2>/dev/null)"
+        echo "intel_no_turbo: $(cat /sys/devices/system/cpu/intel_pstate/no_turbo 2>/dev/null || echo n/a)"
+        echo "epp: $(cat /sys/devices/system/cpu/cpu0/cpufreq/energy_performance_preference 2>/dev/null || echo n/a)"
+        echo "cstates: $(for s in /sys/devices/system/cpu/cpu0/cpuidle/state*/name; do printf '%s ' "$(cat $s)"; done 2>/dev/null)"
+        echo "pcie_aspm: $(cat /sys/module/pcie_aspm/parameters/policy 2>/dev/null || echo n/a)"
+        echo "io_sched_sda: $(cat /sys/block/sda/queue/scheduler 2>/dev/null || echo n/a)"
+        echo "sched_ext: $(cat /sys/kernel/sched_ext/state 2>/dev/null || echo n/a)"
+        echo "running_services: $(systemctl list-units --type=service --state=running --no-legend | wc -l)"
+        echo "cmdline: $(cat /proc/cmdline)"
+      register: baseline
+      changed_when: false
+
+    - name: Report baseline
+      debug:
+        var: baseline.stdout_lines

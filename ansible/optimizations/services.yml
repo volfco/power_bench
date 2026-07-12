@@ -1,0 +1,46 @@
+---
+# Trim background services to free CPU cycles and reduce wakeups.
+# CONSERVATIVE BY DEFAULT (empty list) — disabling services can break things; choose
+# deliberately and revert explicitly (this is not undone by reset_to_baseline.yml).
+# Apply:  ansible-playbook -i ansible/hosts ansible/optimizations/services.yml \
+#             -e '{"services_to_disable":["bluetooth.service","cups.service","avahi-daemon.service"]}'
+# Revert: ansible-playbook -i ansible/hosts ansible/optimizations/services.yml \
+#             -e '{"services_to_enable":["bluetooth.service","cups.service","avahi-daemon.service"]}'
+- name: "services - disable/enable background services"
+  hosts: benchmarks
+  become: true
+  vars:
+    services_to_disable: []   # candidates: bluetooth, cups, avahi-daemon, ModemManager, switcheroo-control
+    services_to_enable: []    # used to revert
+  tasks:
+    - name: Count running services (before)
+      shell: systemctl list-units --type=service --state=running --no-legend | wc -l
+      register: svc_before
+      changed_when: false
+
+    - name: Stop and disable selected services
+      systemd:
+        name: "{{ item }}"
+        state: stopped
+        enabled: false
+      loop: "{{ services_to_disable }}"
+      failed_when: false
+
+    - name: Start and enable selected services (revert)
+      systemd:
+        name: "{{ item }}"
+        state: started
+        enabled: true
+      loop: "{{ services_to_enable }}"
+      failed_when: false
+
+    - name: Count running services (after)
+      shell: systemctl list-units --type=service --state=running --no-legend | wc -l
+      register: svc_after
+      changed_when: false
+
+    - name: Report
+      debug:
+        msg: >
+          Running services: {{ svc_before.stdout }} -> {{ svc_after.stdout }}
+          (disabled {{ services_to_disable | length }}, enabled {{ services_to_enable | length }})

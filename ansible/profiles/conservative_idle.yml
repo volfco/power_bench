@@ -1,0 +1,12 @@
+# Confirmed Phase C profile for the current rig.
+#
+# This is intentionally an idle-only profile. It reduces mean idle wall power by
+# 6.06% while preserving compile throughput, but raises fixed-work compile energy
+# by 0.52%. The setting is runtime-only and returns to `default` after reboot.
+#
+# Apply:
+#   ansible-playbook -i ansible/hosts ansible/apply_optimizations.yml \
+#     -e @ansible/profiles/conservative_idle.yml
+# Revert without reboot:
+#   ansible-playbook -i ansible/hosts ansible/reset_to_baseline.yml
+pcie_aspm_policy: powersave

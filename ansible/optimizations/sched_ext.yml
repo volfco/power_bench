@@ -1,0 +1,161 @@
+---
+# sched_ext (SCX) BPF scheduler — load a pluggable CPU scheduler as a power/perf
+# optimization. Requires a kernel >= 6.12 with CONFIG_SCHED_CLASS_EXT
+# (Fedora 41+, Ubuntu 24.10+, CachyOS, mainline 6.12+).
+#
+# Select the scheduler with extra vars, e.g.:
+#   ansible-playbook -i ansible/hosts ansible/optimizations/sched_ext.yml \
+#       -e scx_scheduler=scx_lavd     -e "scx_flags=--powersave"
+#   ansible-playbook -i ansible/hosts ansible/optimizations/sched_ext.yml \
+#       -e scx_scheduler=scx_bpfland  -e "scx_flags=-m powersave"
+#   ansible-playbook -i ansible/hosts ansible/optimizations/sched_ext.yml \
+#       -e scx_scheduler=scx_rusty
+#   ansible-playbook -i ansible/hosts ansible/optimizations/sched_ext.yml \
+#       -e scx_scheduler=none          # revert to the in-kernel default (EEVDF)
+#
+# We run the scheduler from a self-contained systemd unit (scx-power.service) rather
+# than the distro's scx.service / scx_loader, so behaviour does not depend on how each
+# distro packages SCX. Reverting is `scx_scheduler=none` here, or reset_to_baseline.yml.
+- name: "sched_ext - load a BPF CPU scheduler"
+  hosts: benchmarks
+  become: true
+  vars:
+    # scx_lavd | scx_bpfland | scx_rusty | scx_tickless | scx_flash | none
+    scx_scheduler: none
+    scx_flags: ""              # scheduler-specific flags, e.g. "--powersave"
+    scx_unit: /etc/systemd/system/scx-power.service
+  tasks:
+    - name: Verify the kernel supports sched_ext
+      stat:
+        path: /sys/kernel/sched_ext
+      register: scx_sysfs
+
+    - name: Fail clearly if sched_ext is unavailable
+      fail:
+        msg: >
+          /sys/kernel/sched_ext is missing — kernel {{ ansible_kernel }} lacks sched_ext.
+          Need >= 6.12 with CONFIG_SCHED_CLASS_EXT (Fedora 41+, Ubuntu 24.10+, CachyOS).
+      when: not scx_sysfs.stat.exists
+
+    - name: Install SCX schedulers (Debian/Ubuntu)
+      apt:
+        name: scx
+        state: present
+        update_cache: true
+      when: ansible_os_family == "Debian"
+      failed_when: false   # package name/availability varies; the binary check below is authoritative
+
+    - name: Install SCX schedulers (Fedora/RHEL)
+      dnf:
+        name: scx-scheds
+        state: present
+      when: ansible_os_family == "RedHat"
+      failed_when: false
+
+    - name: Stop any distro-shipped scx service (avoid conflicting loaders)
+      systemd:
+        name: scx.service
+        state: stopped
+      failed_when: false
+
+    # ------------------------------------------------------------------ baseline
+    - name: Tear down scx-power.service (scx_scheduler=none -> in-kernel default)
+      when: scx_scheduler == "none"
+      block:
+        - name: Stop and disable scx-power.service
+          systemd:
+            name: scx-power.service
+            state: stopped
+            enabled: false
+          failed_when: false
+
+        - name: Remove the scx-power.service unit
+          file:
+            path: "{{ scx_unit }}"
+            state: absent
+          register: scx_unit_removed
+
+        - name: Reload systemd
+          systemd:
+            daemon_reload: true
+          when: scx_unit_removed.changed
+
+        - name: Confirm sched_ext is disabled
+          shell: cat /sys/kernel/sched_ext/state
+          register: scx_state_off
+          changed_when: false
+          failed_when: false
+
+        - name: Report
+          debug:
+            msg: "sched_ext state: {{ scx_state_off.stdout | default('unknown') }} (expected 'disabled')"
+
+    # -------------------------------------------------------------------- active
+    - name: Load the requested SCX scheduler
+      when: scx_scheduler != "none"
+      block:
+        - name: Validate the scheduler name
+          assert:
+            that:
+              - scx_scheduler is match('^scx_[a-z0-9_]+$')
+            fail_msg: "scx_scheduler='{{ scx_scheduler }}' is not a valid scx_* binary name"
+
+        - name: Resolve the scheduler binary
+          # `command -v` is a shell builtin, so this must use the shell module.
+          shell: "command -v {{ scx_scheduler }}"
+          register: scx_bin
+          changed_when: false
+          failed_when: scx_bin.rc != 0
+          # If this fails the scx package did not provide {{ scx_scheduler }} — install
+          # the SCX schedulers manually (https://github.com/sched-ext/scx) and retry.
+
+        - name: Install the scx-power.service unit
+          copy:
+            dest: "{{ scx_unit }}"
+            mode: '0644'
+            content: |
+              [Unit]
+              Description=sched_ext scheduler {{ scx_scheduler }} (power_bench)
+              After=multi-user.target
+              StartLimitIntervalSec=0
+
+              [Service]
+              Type=simple
+              ExecStart={{ scx_bin.stdout }} {{ scx_flags }}
+              Restart=on-failure
+              RestartSec=2
+              KillSignal=SIGINT      # SCX schedulers unload cleanly on SIGINT
+              TimeoutStopSec=10
+
+              [Install]
+              WantedBy=multi-user.target
+          register: scx_unit_written
+
+        - name: Reload systemd
+          systemd:
+            daemon_reload: true
+
+        - name: (Re)start scx-power.service
+          systemd:
+            name: scx-power.service
+            state: restarted
+            enabled: true
+
+        - name: Wait for the scheduler to attach
+          shell: cat /sys/kernel/sched_ext/state
+          register: scx_state
+          until: scx_state.stdout == "enabled"
+          retries: 10
+          delay: 1
+          changed_when: false
+
+        - name: Read the active scheduler ops name
+          shell: cat /sys/kernel/sched_ext/root/ops 2>/dev/null || true
+          register: scx_ops
+          changed_when: false
+
+        - name: Report the active scheduler
+          debug:
+            msg: >
+              sched_ext enabled — ops='{{ scx_ops.stdout | default('?') }}'
+              running '{{ scx_bin.stdout }} {{ scx_flags }}'

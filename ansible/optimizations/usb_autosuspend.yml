@@ -1,0 +1,40 @@
+---
+# USB autosuspend — lets idle USB devices enter low-power. Can disrupt some peripherals.
+# NOTE: the BLE adapter for the Atorch meter runs on the *control* machine, not the
+# benchmark target, so suspending the target's USB does not affect power logging.
+# Apply:  ansible-playbook -i ansible/hosts ansible/optimizations/usb_autosuspend.yml -e usb_autosuspend=true
+# Revert: reset_to_baseline.yml (sets control=on, i.e. autosuspend off)
+- name: "usb_autosuspend - enable/disable USB autosuspend"
+  hosts: benchmarks
+  become: true
+  vars:
+    usb_autosuspend: true            # true = enable autosuspend (power saving)
+    usb_autosuspend_delay_ms: 2000
+  tasks:
+    - name: Set USB power/control
+      shell: |
+        for f in /sys/bus/usb/devices/*/power/control; do
+          [ -w "$f" ] && echo {{ 'auto' if usb_autosuspend else 'on' }} > "$f" || true
+        done
+      changed_when: true
+
+    - name: Set autosuspend delay
+      shell: |
+        for f in /sys/bus/usb/devices/*/power/autosuspend_delay_ms; do
+          [ -w "$f" ] && echo {{ usb_autosuspend_delay_ms | int }} > "$f" || true
+        done
+      when: usb_autosuspend
+      failed_when: false
+      changed_when: true
+
+    - name: Verify (count auto vs on)
+      shell: |
+        auto=$(grep -l auto /sys/bus/usb/devices/*/power/control 2>/dev/null | wc -l)
+        on=$(grep -l on /sys/bus/usb/devices/*/power/control 2>/dev/null | wc -l)
+        echo "auto=$auto on=$on"
+      register: usb_now
+      changed_when: false
+
+    - name: Report
+      debug:
+        msg: "USB power/control — {{ usb_now.stdout }} (autosuspend requested: {{ usb_autosuspend }})"

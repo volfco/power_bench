@@ -1,0 +1,152 @@
+---
+# End-to-end, controller-driven power-benchmark entry point for a new node.
+#
+# It first performs the idempotent PTS setup, then drives the standard harness:
+# varfile -> verified apply -> meter-backed measurement -> reboot for every run.
+# Results are written directly to the configured DuckDB by run_benchmark.py.
+#
+# The default core matrix is deliberately conservative for the Intel pstate / PCIe
+# environment represented by this project:
+#   * baseline (idle + defconfig build)
+#   * max_perf_pct=90 (defconfig build)
+#   * pcie_aspm=powersave (idle + defconfig build)
+#
+# With one repeat, that is 5 measurements/reboots: 2 baseline, 1 balanced-load,
+# and 2 PCIe-ASPM. It excludes host-specific/rejected SCX, NIC, service, and
+# boot-parameter experiments. Set power_bench_repeats >1 only for later confirmation repeats.
+# Runs are serialized because one BLE meter and one DuckDB writer are used at a time.
+#
+# Required per node (usually inventory host variables):
+#   power_bench_meter_mac: "45:AF:4E:55:56:06"
+#
+# Example:
+#   ansible-playbook -i ansible/hosts ansible/run_core_power_bench.yml --limit node2 \
+#     -e power_bench_meter_mac=45:AF:4E:55:56:06
+# Add `-e power_bench_dry_run=true` to run the idempotent PTS setup and print the
+# exact selected matrix without applying power settings, reading the meter, or rebooting.
+#
+# The controller must be physically able to reach the node's BLE meter and must use
+# public-key SSH authentication to the node; run_suite.py intentionally uses BatchMode.
+
+- import_playbook: setup_phoronix.yml
+
+- name: Run the core power-benchmark matrix
+  hosts: benchmarks
+  gather_facts: false
+  serial: 1
+  vars:
+    power_bench_project_dir: "{{ playbook_dir | dirname }}"
+    power_bench_python: python3
+    power_bench_inventory: "{{ ansible_inventory_sources | first }}"
+    power_bench_target_host: "{{ ansible_host | default(inventory_hostname) }}"
+    power_bench_ssh_user: "{{ ansible_user | default(lookup('env', 'USER')) }}"
+    power_bench_ssh_key: "{{ ansible_ssh_private_key_file | default('') }}"
+    power_bench_db: "{{ power_bench_project_dir }}/benchmarks/power_meter.duckdb"
+    power_bench_vars_dir: "{{ power_bench_project_dir }}/ansible/vars/runs/{{ inventory_hostname }}"
+    power_bench_meter_mac: ""
+    power_bench_repeats: 1
+    power_bench_tests:
+      - local/power-bench-build-kernel-defconfig-1.0.0
+    power_bench_core_variants:
+      - max_perf_pct=90
+      - pcie_aspm=powersave
+    power_bench_checksum_policy: warn
+    power_bench_settle: 30
+    power_bench_idle_duration: 600
+    power_bench_cool_to: 55
+    power_bench_shuffle: true
+    power_bench_seed: 0
+    power_bench_skip_existing: true
+    power_bench_dry_run: false
+    power_bench_initial_reboot: true
+
+  pre_tasks:
+    - name: Validate the core-suite inputs
+      ansible.builtin.assert:
+        that:
+          - power_bench_meter_mac | length > 0
+          - power_bench_repeats | int >= 1
+          - power_bench_tests | length > 0
+          - power_bench_core_variants | length > 0
+          - power_bench_checksum_policy in ['strict', 'warn']
+          - power_bench_idle_duration | int >= 1
+          - power_bench_settle | int >= 0
+        fail_msg: >-
+          Set power_bench_meter_mac and use at least one repeat per test.
+          Override the other power_bench_* variables only for a deliberate node-specific
+          change.
+
+    - name: Check controller-side benchmark dependencies
+      ansible.builtin.command:
+        argv:
+          - "{{ power_bench_python }}"
+          - -c
+          - import bleak, duckdb
+      delegate_to: localhost
+      become: false
+      changed_when: false
+
+    - name: Check controller-to-target BatchMode SSH used by the harness
+      ansible.builtin.command:
+        argv: >-
+          {{
+            ['ssh', '-o', 'BatchMode=yes', '-o', 'StrictHostKeyChecking=no',
+             '-o', 'ConnectTimeout=10']
+            + (['-i', power_bench_ssh_key] if power_bench_ssh_key | length > 0 else [])
+            + [power_bench_ssh_user ~ '@' ~ power_bench_target_host, 'true']
+          }}
+      delegate_to: localhost
+      become: false
+      changed_when: false
+
+  tasks:
+    - name: Build the host-limited core-suite command
+      ansible.builtin.set_fact:
+        power_bench_runner_argv: >-
+          {{
+            [power_bench_python, 'run_suite.py', power_bench_target_host,
+             '--user', power_bench_ssh_user,
+             '--inventory', power_bench_inventory,
+             '--ansible-limit', inventory_hostname,
+             '--db', power_bench_db,
+             '--vars-dir', power_bench_vars_dir,
+             '--repeats', power_bench_repeats | string,
+             '--settle', power_bench_settle | string,
+             '--idle-duration', power_bench_idle_duration | string,
+             '--mac', power_bench_meter_mac,
+             '--checksum-policy', power_bench_checksum_policy,
+             ]
+            + (['--initial-reboot'] if power_bench_initial_reboot | bool else [])
+            + (['--cool-to', power_bench_cool_to | string]
+               if power_bench_cool_to is not none else [])
+            + (['--key', power_bench_ssh_key]
+               if power_bench_ssh_key | length > 0 else [])
+            + (['--shuffle', '--seed', power_bench_seed | string]
+               if power_bench_shuffle | bool else [])
+            + (['--skip-existing'] if power_bench_skip_existing | bool else [])
+            + (['--dry-run'] if power_bench_dry_run | bool else [])
+            + ['--tests'] + power_bench_tests
+            + ['--only'] + power_bench_core_variants
+          }}
+
+    - name: Run the core suite and write valid rows to DuckDB
+      ansible.builtin.command:
+        argv: "{{ power_bench_runner_argv }}"
+        chdir: "{{ power_bench_project_dir }}"
+      delegate_to: localhost
+      become: false
+      environment:
+        PYTHONUNBUFFERED: "1"
+      register: power_bench_core_run
+      changed_when: not (power_bench_dry_run | bool)
+
+    - name: Display the dry-run core matrix
+      ansible.builtin.debug:
+        var: power_bench_core_run.stdout_lines
+      when: power_bench_dry_run | bool
+
+    - name: Report the completed core-suite command
+      ansible.builtin.debug:
+        msg: >-
+          Core suite completed for {{ inventory_hostname }}. Results are in
+          {{ power_bench_db }}; generated varfiles are in {{ power_bench_vars_dir }}.

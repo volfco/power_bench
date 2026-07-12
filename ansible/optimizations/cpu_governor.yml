@@ -1,0 +1,35 @@
+---
+# CPU frequency governor — the single biggest power/perf lever.
+# Apply:  ansible-playbook -i ansible/hosts ansible/optimizations/cpu_governor.yml -e cpu_governor=powersave
+# Revert: reset_to_baseline.yml (restores schedutil/ondemand)
+- name: "cpu_governor - set the CPU frequency governor"
+  hosts: benchmarks
+  become: true
+  vars:
+    cpu_governor: powersave   # powersave | schedutil | ondemand | conservative | performance
+  tasks:
+    - name: List available governors
+      shell: cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_available_governors
+      register: gov_avail
+      changed_when: false
+
+    - name: Assert the requested governor is available
+      assert:
+        that: cpu_governor in gov_avail.stdout.split()
+        fail_msg: "Governor '{{ cpu_governor }}' not available. Have: {{ gov_avail.stdout }}"
+
+    - name: Set governor on all CPUs
+      shell: |
+        for c in /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor; do
+          [ -w "$c" ] && echo "{{ cpu_governor }}" > "$c" || true
+        done
+      changed_when: true
+
+    - name: Verify
+      shell: cat /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor | sort -u | tr '\n' ' '
+      register: gov_now
+      changed_when: false
+
+    - name: Report
+      debug:
+        msg: "Governor(s) now: {{ gov_now.stdout }} (requested {{ cpu_governor }})"

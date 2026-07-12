@@ -1,0 +1,42 @@
+---
+# CPU idle (C-state) management. Deeper C-states cut idle power but add wake latency.
+# Default ENABLES all idle states (max idle power saving). Set cstate_limit to an integer
+# to DISABLE states with index > limit (shallower sleep, lower latency, higher idle power).
+# Apply:  ansible-playbook -i ansible/hosts ansible/optimizations/c_states.yml                  # enable all (power)
+#         ansible-playbook -i ansible/hosts ansible/optimizations/c_states.yml -e cstate_limit=1  # shallow only (latency)
+# Revert: reset_to_baseline.yml (enables all states)
+- name: "c_states - configure CPU idle states"
+  hosts: benchmarks
+  become: true
+  vars:
+    cstate_limit: -1   # -1 = enable all states; >=0 = disable states with index > limit
+  tasks:
+    - name: Enable all idle states (cstate_limit < 0)
+      shell: |
+        for f in /sys/devices/system/cpu/cpu*/cpuidle/state*/disable; do
+          [ -w "$f" ] && echo 0 > "$f" || true
+        done
+      when: cstate_limit | int < 0
+      changed_when: true
+
+    - name: Limit C-states (disable states with index > cstate_limit)
+      shell: |
+        for d in /sys/devices/system/cpu/cpu*/cpuidle/state*/; do
+          idx=$(basename "$d" | sed 's/state//')
+          val=0; [ "$idx" -gt {{ cstate_limit | int }} ] && val=1
+          [ -w "$d/disable" ] && echo $val > "$d/disable" || true
+        done
+      when: cstate_limit | int >= 0
+      changed_when: true
+
+    - name: Report idle states (cpu0)
+      shell: |
+        for s in /sys/devices/system/cpu/cpu0/cpuidle/state*/; do
+          echo "$(basename $s) name=$(cat $s/name) disable=$(cat $s/disable)"
+        done
+      register: cstate_report
+      changed_when: false
+
+    - name: Report
+      debug:
+        var: cstate_report.stdout_lines
