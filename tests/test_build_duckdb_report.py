@@ -133,6 +133,9 @@ class DuckDbReportTests(unittest.TestCase):
         self.assertIn('id="coverageGrid"', report)
         self.assertIn("function renderCoverage(", report)
         self.assertIn("DATA.runs.length+' recorded runs'", report)
+        self.assertIn("configurations=new Map", report)
+        self.assertIn("configurations.get(t)", report)
+        self.assertIn("count===1?'run':'runs'", report)
         self.assertIn('runs/2.html', report)
         host_specs = {
             host["host"]: {spec["label"]: spec["values"] for spec in host["specs"]}
