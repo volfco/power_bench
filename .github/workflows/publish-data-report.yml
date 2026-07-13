@@ -1,0 +1,81 @@
+name: Publish benchmark data report
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - benchmarks/power_meter.duckdb
+      - scripts/build_duckdb_report.py
+      - .github/workflows/publish-data-report.yml
+  workflow_run:
+    workflows: [Publish benchmark report]
+    types: [completed]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: github-pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    if: >-
+      github.event_name != 'workflow_run' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_branch == 'master')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - name: Configure GitHub Pages
+        id: pages
+        uses: actions/configure-pages@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Install DuckDB
+        run: python -m pip install --disable-pip-version-check 'duckdb>=1.0'
+
+      - name: Generate report site
+        run: |
+          mkdir -p site
+          {
+            printf '%s\n' '---' 'layout: default' 'title: BLE Wall-Power Optimization Report' '---' ''
+            cat FINAL_REPORT.md
+            printf '%s\n' '' '[View the generated benchmark data report](data-report.html)'
+          } > site/index.md
+          python scripts/build_duckdb_report.py \
+            --database benchmarks/power_meter.duckdb \
+            --output site/data-report.html
+
+      - name: Build site
+        uses: actions/jekyll-build-pages@v1
+        with:
+          source: ./site
+          destination: ./_site
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: ./_site
+
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
