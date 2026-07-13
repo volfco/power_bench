@@ -1,0 +1,7 @@
+title: BLE Wall-Power Optimization Report
+description: Measured AC wall-power benchmark results and optimization analysis.
+theme: jekyll-theme-cayman
+markdown: kramdown
+
+kramdown:
+  input: GFM

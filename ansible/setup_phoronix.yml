@@ -11,6 +11,19 @@
     # 100 GB of download/environment space on current PTS metadata.
     pts_tests:
       - pts/build-linux-kernel
+    # The upstream catalog has no memory suite; this opt-in local suite groups
+    # the available RAM bandwidth/latency profiles without changing the normal
+    # kernel-benchmark setup.
+    pts_install_memory_suite: false
+    pts_memory_suite: local/power-bench-memory-1.0.0
+    pts_memory_tests:
+      - pts/mbw
+      - pts/ramspeed
+      - pts/stream
+      - pts/stream-dynamic
+      - pts/pmbench
+      - pts/tinymembench
+    pts_preinstall_tests: "{{ pts_tests + (pts_memory_tests if (pts_install_memory_suite | bool) else []) }}"
 
   tasks:
     - name: Update apt cache
@@ -207,6 +220,38 @@
             </Execute>
           </PhoronixTestSuite>
 
+    - name: Ensure local memory suite directory exists
+      become: false
+      file:
+        path: "{{ user_home.stdout }}/.phoronix-test-suite/test-suites/{{ pts_memory_suite }}"
+        state: directory
+        mode: '0755'
+      when: pts_install_memory_suite | bool
+
+    - name: Install local memory benchmark suite definition
+      become: false
+      copy:
+        dest: "{{ user_home.stdout }}/.phoronix-test-suite/test-suites/{{ pts_memory_suite }}/suite-definition.xml"
+        mode: '0644'
+        content: |
+          <?xml version="1.0"?>
+          <PhoronixTestSuite>
+            <SuiteInformation>
+              <Title>Power Bench Memory Benchmark Suite</Title>
+              <Version>1.0.0</Version>
+              <TestType>Memory</TestType>
+              <Description>Power Bench local suite for RAM bandwidth and virtual-memory benchmarks.</Description>
+              <Maintainer>power_bench</Maintainer>
+            </SuiteInformation>
+          {% for test in pts_memory_tests %}
+            <Execute>
+              <Test>{{ test }}</Test>
+              <Description>{{ test }} memory benchmark</Description>
+            </Execute>
+          {% endfor %}
+          </PhoronixTestSuite>
+      when: pts_install_memory_suite | bool
+
     # Installing (download + compile) happens here, up front — never inside a measured
     # run. batch-install re-running against an installed test is a cheap no-op; the
     # creates glob skips it entirely once the versioned install dir exists.
@@ -217,7 +262,7 @@
         creates: "{{ user_home.stdout }}/.phoronix-test-suite/installed-tests/{{ item }}-*"
       environment:
         PTS_SILENT_MODE: "1"
-      loop: "{{ pts_tests }}"
+      loop: "{{ pts_preinstall_tests }}"
 
     - name: Display installation summary
       debug:
@@ -225,5 +270,6 @@
           - "Phoronix Test Suite installed at: {{ pts_install_dir }}"
           - "Binary available at: /usr/local/bin/phoronix-test-suite"
           - "Batch mode configured for user: {{ user_home.stdout }}/.phoronix-test-suite/user-config.xml"
-          - "Pre-installed tests: {{ pts_tests | join(', ') }}"
+          - "Pre-installed tests: {{ pts_preinstall_tests | join(', ') }}"
+          - "Memory suite: {{ pts_memory_suite if (pts_install_memory_suite | bool) else 'disabled' }}"
           - "Run 'phoronix-test-suite default-run <test>' to execute benchmarks with default profile options"

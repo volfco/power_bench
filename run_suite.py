@@ -31,6 +31,7 @@ Examples:
   python run_suite.py 192.168.1.58 --list                         # print the matrix and exit
   python run_suite.py 192.168.1.58 --user metrolla --dry-run       # show commands, run nothing
   python run_suite.py 192.168.1.58 --user metrolla --shuffle --seed 1
+  python run_suite.py 192.168.1.76 --sweep amd --only 'stack=amd_performance+pcie_aspm' --dry-run
 """
 
 import argparse
@@ -151,6 +152,41 @@ EXPERIMENTS = [
     ("kernel_params=intel_pstate_passive", {"kernel_params": ["intel_pstate=passive"]}, "both"),
 ]
 
+# AMD/acpi-cpufreq catalog. Keep this separate from EXPERIMENTS: the Intel catalog
+# contains HWP/EPP, intel_pstate max_perf_pct, and an Intel-only stack that must never
+# be selected for node2. The AMD host inventory advertises this profile explicitly.
+AMD_EXPERIMENTS = [
+    ("baseline", {}, "both"),
+
+    # All governors reported by node2's acpi-cpufreq driver. The userspace case is
+    # intentionally a governor-only probe; no fixed frequency is imposed by the suite.
+    ("cpu_governor=conservative", {"cpu_governor": "conservative"}, "both"),
+    ("cpu_governor=ondemand",     {"cpu_governor": "ondemand"}, "both"),
+    ("cpu_governor=userspace",    {"cpu_governor": "userspace"}, "both"),
+    ("cpu_governor=powersave",    {"cpu_governor": "powersave"}, "both"),
+    ("cpu_governor=performance",  {"cpu_governor": "performance"}, "both"),
+    ("cpu_governor=schedutil",    {"cpu_governor": "schedutil"}, "both"),
+
+    # Supported acpi-cpufreq/AMD platform controls.
+    ("turbo=off", {"turbo_enabled": False}, "load"),
+    ("cstates=shallow", {"cstate_limit": 1}, "idle"),
+    ("pcie_aspm=powersave", {"pcie_aspm_policy": "powersave"}, "idle"),
+    ("pcie_aspm=powersupersave", {"pcie_aspm_policy": "powersupersave"}, "idle"),
+    ("gpu=low", {"gpu_power_profile": "low"}, "idle"),
+
+    # AMD equivalent of the old combined experiment: use the existing valid
+    # performance governor reference plus the supported generic ASPM control.
+    ("stack=amd_performance+pcie_aspm", {
+        "cpu_governor": "performance",
+        "pcie_aspm_policy": "powersave",
+    }, "both"),
+]
+
+SWEEP_EXPERIMENTS = {
+    "core": EXPERIMENTS,
+    "amd": AMD_EXPERIMENTS,
+}
+
 
 def yaml_value(v):
     if isinstance(v, bool):
@@ -195,8 +231,9 @@ def sh(cmd):
     return subprocess.run(cmd).returncode
 
 
-def select_experiments(only, skip_baseline):
-    selected = list(EXPERIMENTS)
+def select_experiments(only, skip_baseline, sweep="core"):
+    """Select variants from one named hardware profile."""
+    selected = list(SWEEP_EXPERIMENTS[sweep])
     if only:
         selected = [e for e in selected
                     if e[0] == "baseline" or any(p in e[0] for p in only)]
@@ -302,6 +339,8 @@ def main():
     ap.add_argument("--repeats", type=int, default=3,
                     help="runs per (variant, test); all counted, no warm-up (default: 3)")
     ap.add_argument("--inventory", default="ansible/hosts")
+    ap.add_argument("--sweep", choices=sorted(SWEEP_EXPERIMENTS), default="core",
+                    help="hardware-aware catalog to run (default: core; use amd for node2)")
     ap.add_argument("--ansible-limit", default=None,
                     help="limit each nested apply_optimizations play to this inventory host/pattern; "
                          "required when the inventory contains more than one benchmark node")
@@ -335,7 +374,7 @@ def main():
                         format="%(asctime)s %(levelname)-5s %(message)s",
                         datefmt="%Y-%m-%d %H:%M:%S")
 
-    selected = select_experiments(args.only, args.skip_baseline)
+    selected = select_experiments(args.only, args.skip_baseline, args.sweep)
     if not selected:
         print("No variants selected.", file=sys.stderr)
         sys.exit(1)

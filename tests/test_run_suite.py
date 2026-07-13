@@ -1,0 +1,68 @@
+import subprocess
+import sys
+import unittest
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+
+import run_suite
+
+
+class AmdSweepTests(unittest.TestCase):
+    def test_core_profile_remains_the_default_catalog(self):
+        self.assertEqual(
+            run_suite.select_experiments(None, False), run_suite.EXPERIMENTS)
+
+    def test_amd_catalog_contains_supported_controls_only(self):
+        labels = [label for label, _, _ in run_suite.AMD_EXPERIMENTS]
+        self.assertIn("cpu_governor=conservative", labels)
+        self.assertIn("cpu_governor=ondemand", labels)
+        self.assertIn("cpu_governor=userspace", labels)
+        self.assertIn("cpu_governor=powersave", labels)
+        self.assertIn("cpu_governor=performance", labels)
+        self.assertIn("cpu_governor=schedutil", labels)
+        self.assertIn("stack=amd_performance+pcie_aspm", labels)
+        self.assertFalse(any("epp" in label or "max_perf_pct" in label
+                             or label.startswith("stack=balanced_")
+                             for label in labels))
+        for _, overrides, _ in run_suite.AMD_EXPERIMENTS:
+            self.assertNotIn("energy_perf_preference", overrides)
+            self.assertNotIn("pstate_max_perf_pct", overrides)
+            self.assertNotIn("pstate_min_perf_pct", overrides)
+
+    def test_amd_combined_branch_is_explicit_and_non_intel(self):
+        selected = run_suite.select_experiments(
+            ["stack=amd_performance+pcie_aspm"], False, sweep="amd")
+        labels = [label for label, _, _ in selected]
+        self.assertEqual(labels, ["baseline", "stack=amd_performance+pcie_aspm"])
+        combined = selected[-1][1]
+        self.assertEqual(combined, {
+            "cpu_governor": "performance",
+            "pcie_aspm_policy": "powersave",
+        })
+
+    def test_amd_combined_branch_dry_run(self):
+        result = subprocess.run(
+            [
+                sys.executable, "run_suite.py", "192.168.1.76",
+                "--sweep", "amd",
+                "--only", "stack=amd_performance+pcie_aspm",
+                "--skip-baseline", "--repeats", "1", "--dry-run",
+            ],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("stack=amd_performance+pcie_aspm", result.stdout)
+        self.assertIn("'cpu_governor': 'performance'", result.stdout)
+        self.assertIn("'pcie_aspm_policy': 'powersave'", result.stdout)
+        self.assertNotIn("max_perf_pct", result.stdout)
+        self.assertNotIn("energy_perf_preference", result.stdout)
+
+
+if __name__ == "__main__":
+    unittest.main()

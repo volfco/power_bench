@@ -1,5 +1,5 @@
 ---
-# End-to-end, controller-driven power-benchmark entry point for a new node.
+# End-to-end, controller-driven power-benchmark entry point for a new node/profile.
 #
 # It first performs the idempotent PTS setup, then drives the standard harness:
 # varfile -> verified apply -> meter-backed measurement -> reboot for every run.
@@ -15,6 +15,10 @@
 # and 2 PCIe-ASPM. It excludes host-specific/rejected SCX, NIC, service, and
 # boot-parameter experiments. Set power_bench_repeats >1 only for later confirmation repeats.
 # Runs are serialized because one BLE meter and one DuckDB writer are used at a time.
+# Set power_bench_sweep=amd for the explicit acpi-cpufreq/AMD catalog. That catalog
+# excludes EPP, intel_pstate max_perf_pct, Intel boot params, and the Intel-only stack.
+# node2 is marked with this profile in ansible/hosts; the combined branch can be
+# selected with power_bench_only=['stack=amd_performance+pcie_aspm'].
 #
 # Required per node (usually inventory host variables):
 #   power_bench_meter_mac: "45:AF:4E:55:56:06"
@@ -41,6 +45,7 @@
     power_bench_target_host: "{{ ansible_host | default(inventory_hostname) }}"
     power_bench_ssh_user: "{{ ansible_user | default(lookup('env', 'USER')) }}"
     power_bench_ssh_key: "{{ ansible_ssh_private_key_file | default('') }}"
+    power_bench_sweep: "{{ hostvars[inventory_hostname].power_bench_sweep_profile | default('core') }}"
     power_bench_db: "{{ power_bench_project_dir }}/benchmarks/power_meter.duckdb"
     power_bench_vars_dir: "{{ power_bench_project_dir }}/ansible/vars/runs/{{ inventory_hostname }}"
     power_bench_meter_mac: ""
@@ -50,6 +55,10 @@
     power_bench_core_variants:
       - max_perf_pct=90
       - pcie_aspm=powersave
+    power_bench_only: []
+    power_bench_selected_only: >-
+      {{ power_bench_only if power_bench_only | length > 0
+         else (power_bench_core_variants if power_bench_sweep == 'core' else []) }}
     power_bench_checksum_policy: warn
     power_bench_settle: 30
     power_bench_idle_duration: 600
@@ -57,6 +66,7 @@
     power_bench_shuffle: true
     power_bench_seed: 0
     power_bench_skip_existing: true
+    power_bench_skip_baseline: false
     power_bench_dry_run: false
     power_bench_initial_reboot: true
 
@@ -67,7 +77,8 @@
           - power_bench_meter_mac | length > 0
           - power_bench_repeats | int >= 1
           - power_bench_tests | length > 0
-          - power_bench_core_variants | length > 0
+          - power_bench_sweep in ['core', 'amd']
+          - power_bench_sweep != 'core' or power_bench_selected_only | length > 0
           - power_bench_checksum_policy in ['strict', 'warn']
           - power_bench_idle_duration | int >= 1
           - power_bench_settle | int >= 0
@@ -105,6 +116,7 @@
         power_bench_runner_argv: >-
           {{
             [power_bench_python, 'run_suite.py', power_bench_target_host,
+             '--sweep', power_bench_sweep,
              '--user', power_bench_ssh_user,
              '--inventory', power_bench_inventory,
              '--ansible-limit', inventory_hostname,
@@ -124,9 +136,11 @@
             + (['--shuffle', '--seed', power_bench_seed | string]
                if power_bench_shuffle | bool else [])
             + (['--skip-existing'] if power_bench_skip_existing | bool else [])
+            + (['--skip-baseline'] if power_bench_skip_baseline | bool else [])
             + (['--dry-run'] if power_bench_dry_run | bool else [])
             + ['--tests'] + power_bench_tests
-            + ['--only'] + power_bench_core_variants
+            + (['--only'] + power_bench_selected_only
+               if power_bench_selected_only | length > 0 else [])
           }}
 
     - name: Run the core suite and write valid rows to DuckDB
