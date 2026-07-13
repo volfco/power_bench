@@ -50,7 +50,7 @@ class DuckDbReportTests(unittest.TestCase):
                 """
             )
             connection.execute(
-                "CREATE TABLE readings (run_id INTEGER, phase VARCHAR, power_w DOUBLE)"
+                "CREATE TABLE readings (run_id INTEGER, phase VARCHAR, power_w DOUBLE, timestamp DOUBLE)"
             )
             connection.execute(
                 "CREATE TABLE run_results (run_id INTEGER, title VARCHAR, value DOUBLE)"
@@ -78,8 +78,8 @@ class DuckDbReportTests(unittest.TestCase):
                 )
                 phase = "idle" if test == "idle" else "bench"
                 connection.executemany(
-                    "INSERT INTO readings VALUES (?, ?, ?)",
-                    [(run_id, phase, power), (run_id, phase, power)],
+                    "INSERT INTO readings VALUES (?, ?, ?, ?)",
+                    [(run_id, phase, power, run_id * 10.0), (run_id, phase, power, run_id * 10.0 + 1.0)],
                 )
 
             connection.execute(
@@ -90,6 +90,13 @@ class DuckDbReportTests(unittest.TestCase):
                 )
                 """,
                 ['{"note":"</script><script>alert(1)</script>"}'],
+            )
+            connection.execute("ALTER TABLE runs ADD COLUMN kernel VARCHAR")
+            connection.execute("ALTER TABLE runs ADD COLUMN cpu_model VARCHAR")
+            connection.execute("ALTER TABLE runs ADD COLUMN memory_bytes BIGINT")
+            connection.execute(
+                "UPDATE runs SET kernel = host || '-kernel', cpu_model = host || '-cpu', "
+                "memory_bytes = CASE host WHEN 'alpha' THEN 17179869184 ELSE 34359738368 END"
             )
 
     def embedded_payload(self, report):
@@ -121,6 +128,32 @@ class DuckDbReportTests(unittest.TestCase):
         self.assertIn('id="metricFilter"', report)
         self.assertIn("function metric(", report)
         self.assertIn("function renderRuns(", report)
+        self.assertIn('id="hostConfigs"', report)
+        self.assertIn('id="coverageView"', report)
+        self.assertIn('id="coverageGrid"', report)
+        self.assertIn("function renderCoverage(", report)
+        self.assertIn("DATA.runs.length+' recorded runs'", report)
+        self.assertIn('runs/2.html', report)
+        host_specs = {
+            host["host"]: {spec["label"]: spec["values"] for spec in host["specs"]}
+            for host in payload["hostConfigs"]
+        }
+        self.assertEqual(host_specs["alpha"]["CPU model"], ["alpha-cpu"])
+        self.assertEqual(host_specs["beta"]["Memory"], [34359738368])
+
+        detail = self.root / "runs" / "2.html"
+        self.assertTrue(detail.is_file())
+        detail_report = detail.read_text(encoding="utf-8")
+        detail_match = re.search(
+            r'<script id="runData" type="application/json">(.*?)</script>',
+            detail_report,
+            flags=re.DOTALL,
+        )
+        self.assertIsNotNone(detail_match)
+        detail_payload = json.loads(detail_match.group(1))
+        self.assertEqual(detail_payload["run"]["run_id"], 2)
+        self.assertEqual([point["elapsed_s"] for point in detail_payload["readings"]], [0.0, 1.0])
+        self.assertIn("Power consumption over time", detail_report)
         self.assertNotIn("</script><script>alert(1)</script>", report)
         self.assertIn(r"\u003c/script\u003e", report)
 
@@ -133,6 +166,17 @@ class DuckDbReportTests(unittest.TestCase):
             result = subprocess.run(
                 ["node", "--check"],
                 input=scripts[-1],
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            detail_scripts = re.findall(
+                r"<script(?: [^>]*)?>(.*?)</script>", detail_report, re.DOTALL
+            )
+            result = subprocess.run(
+                ["node", "--check"],
+                input=detail_scripts[-1],
                 text=True,
                 capture_output=True,
                 check=False,

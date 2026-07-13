@@ -23,7 +23,17 @@
       - pts/stream-dynamic
       - pts/pmbench
       - pts/tinymembench
+    # These official suites are deliberately opt-in: each expands to many profiles
+    # and may download large assets or require workload-specific services/graphics.
+    # Override pts_extended_suites with a subset when only one suite is needed.
+    pts_install_extended_suites: false
+    pts_extended_suites:
+      - pts/disk
+      - pts/database
+      - pts/audio-encoding
+      - pts/browsers
     pts_preinstall_tests: "{{ pts_tests + (pts_memory_tests if (pts_install_memory_suite | bool) else []) }}"
+    pts_preinstall_suites: "{{ pts_extended_suites if (pts_install_extended_suites | bool) else [] }}"
 
   tasks:
     - name: Update apt cache
@@ -264,6 +274,17 @@
         PTS_SILENT_MODE: "1"
       loop: "{{ pts_preinstall_tests }}"
 
+    # A PTS suite owns several versioned profile directories, so it cannot use the
+    # single-profile creates guard above. PTS recognizes already-installed profiles
+    # itself, while this task guarantees that all suite dependencies are resolved
+    # before the meter-backed run begins.
+    - name: Pre-install selected PTS suites (downloads + compiles; can take a while)
+      become: false
+      command: phoronix-test-suite batch-install {{ item }}
+      environment:
+        PTS_SILENT_MODE: "1"
+      loop: "{{ pts_preinstall_suites }}"
+
     - name: Display installation summary
       debug:
         msg:
@@ -272,4 +293,5 @@
           - "Batch mode configured for user: {{ user_home.stdout }}/.phoronix-test-suite/user-config.xml"
           - "Pre-installed tests: {{ pts_preinstall_tests | join(', ') }}"
           - "Memory suite: {{ pts_memory_suite if (pts_install_memory_suite | bool) else 'disabled' }}"
+          - "Extended PTS suites: {{ pts_preinstall_suites | join(', ') if (pts_preinstall_suites | length > 0) else 'disabled' }}"
           - "Run 'phoronix-test-suite default-run <test>' to execute benchmarks with default profile options"

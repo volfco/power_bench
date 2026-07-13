@@ -63,6 +63,34 @@ class AmdSweepTests(unittest.TestCase):
         self.assertNotIn("max_perf_pct", result.stdout)
         self.assertNotIn("energy_perf_preference", result.stdout)
 
+    def test_security_sensitive_kernel_param_variants_are_opt_in_for_every_sweep(self):
+        expected = {
+            "kernel_params=mitigations_off": ["mitigations=off"],
+            "kernel_params=nokaslr": ["nokaslr"],
+            "kernel_params=mitigations_off+nokaslr": ["mitigations=off", "nokaslr"],
+        }
+        for sweep in ("core", "amd"):
+            variants = {label: overrides for label, overrides, _ in run_suite.SWEEP_EXPERIMENTS[sweep]}
+            for label, kernel_params in expected.items():
+                self.assertEqual(variants[label]["kernel_params"], kernel_params)
+
+    def test_combined_kernel_param_variant_dry_run(self):
+        result = subprocess.run(
+            [
+                sys.executable, "run_suite.py", "192.168.1.76",
+                "--sweep", "amd",
+                "--only", "kernel_params=mitigations_off+nokaslr",
+                "--skip-baseline", "--repeats", "1", "--dry-run",
+            ],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("kernel_params=mitigations_off+nokaslr", result.stdout)
+        self.assertIn("'kernel_params': ['mitigations=off', 'nokaslr']", result.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()

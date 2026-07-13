@@ -123,13 +123,14 @@ def reboot_host(host: str, user: str | None = None, key: str | None = None, time
 def gather_host_info(host: str, user: str | None = None, key: str | None = None) -> dict:
     """Best-effort post-apply snapshot of the host's power-relevant configuration.
 
-    The kernel/cpu_model/governor/turbo keys land in their own ``runs`` columns; the
+    The kernel/cpu_model/memory_bytes/governor/turbo keys land in their own ``runs`` columns; the
     full dict is stored as JSON in ``runs.applied_config`` so a silently failed apply
     (best-effort sysfs writes) is detectable after the fact.
     """
     script = (
         'echo "kernel=$(uname -r)"; '
         "echo \"cpu=$(LC_ALL=C lscpu | sed -n 's/^Model name:[[:space:]]*//p' | head -1)\"; "
+        "echo \"memory_bytes=$(awk '/MemTotal:/{printf \"%.0f\", $2 * 1024}' /proc/meminfo)\"; "
         'echo "governor=$(cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor 2>/dev/null)"; '
         # intel_pstate no_turbo: 0 = turbo on. cpufreq boost (AMD/acpi): 1 = turbo on
         # (inverted sense) — normalize both to on/off here.
@@ -146,7 +147,7 @@ def gather_host_info(host: str, user: str | None = None, key: str | None = None)
         "echo \"io=$d:$(sed -n 's/.*\\[\\(.*\\)\\].*/\\1/p' \"$q\")\"; break; done; "
         'echo "cmdline=$(cat /proc/cmdline)"'
     )
-    field_map = {"kernel": "kernel", "cpu": "cpu_model", "governor": "governor",
+    field_map = {"kernel": "kernel", "cpu": "cpu_model", "memory_bytes": "memory_bytes", "governor": "governor",
                  "turbo": "turbo", "driver": "scaling_driver", "epp": "epp",
                  "aspm": "aspm_policy", "io": "io_scheduler", "cmdline": "cmdline"}
     info = {column: None for column in field_map.values()}

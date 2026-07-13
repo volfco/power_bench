@@ -150,6 +150,13 @@ EXPERIMENTS = [
     # 14. Kernel boot params (REBOOT to apply/clear; apply_optimizations reconciles GRUB)
     ("kernel_params=pcie_aspm_force",      {"kernel_params": ["pcie_aspm=force"]}, "idle"),
     ("kernel_params=intel_pstate_passive", {"kernel_params": ["intel_pstate=passive"]}, "both"),
+    # Security-sensitive diagnostic cases. These are never part of the default core
+    # selection; run only on an isolated benchmark host with an explicit --only value.
+    ("kernel_params=mitigations_off", {"kernel_params": ["mitigations=off"]}, "both"),
+    ("kernel_params=nokaslr", {"kernel_params": ["nokaslr"]}, "both"),
+    ("kernel_params=mitigations_off+nokaslr", {
+        "kernel_params": ["mitigations=off", "nokaslr"],
+    }, "both"),
 ]
 
 # AMD/acpi-cpufreq catalog. Keep this separate from EXPERIMENTS: the Intel catalog
@@ -179,6 +186,15 @@ AMD_EXPERIMENTS = [
     ("stack=amd_performance+pcie_aspm", {
         "cpu_governor": "performance",
         "pcie_aspm_policy": "powersave",
+    }, "both"),
+
+    # Architecture-independent, security-sensitive boot-parameter diagnostic cases.
+    # They remain opt-in through --only and are reconciled back to an empty managed
+    # GRUB fragment at the end of every non-dry sweep.
+    ("kernel_params=mitigations_off", {"kernel_params": ["mitigations=off"]}, "both"),
+    ("kernel_params=nokaslr", {"kernel_params": ["nokaslr"]}, "both"),
+    ("kernel_params=mitigations_off+nokaslr", {
+        "kernel_params": ["mitigations=off", "nokaslr"],
     }, "both"),
 ]
 

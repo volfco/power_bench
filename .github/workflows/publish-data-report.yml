@@ -7,6 +7,7 @@ on:
       - benchmarks/power_meter.duckdb
       - scripts/build_duckdb_report.py
       - scripts/report_template.html
+      - scripts/run_report_template.html
       - tests/test_build_duckdb_report.py
       - .github/workflows/publish-data-report.yml
   workflow_run:

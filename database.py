@@ -31,6 +31,7 @@ CREATE TABLE IF NOT EXISTS runs (
     config_hash           VARCHAR,
     kernel                VARCHAR,
     cpu_model             VARCHAR,
+    memory_bytes          BIGINT,
     governor              VARCHAR,
     turbo                 VARCHAR,
     ambient_c             DOUBLE,
@@ -92,6 +93,7 @@ MIGRATIONS = [
     "ALTER TABLE readings ADD COLUMN IF NOT EXISTS run_id INTEGER",
     "ALTER TABLE readings ADD COLUMN IF NOT EXISTS phase VARCHAR",
     "ALTER TABLE runs ADD COLUMN IF NOT EXISTS applied_config VARCHAR",
+    "ALTER TABLE runs ADD COLUMN IF NOT EXISTS memory_bytes BIGINT",
     "ALTER TABLE runs ADD COLUMN IF NOT EXISTS bench_start_temp_c DOUBLE",
     "ALTER TABLE runs ADD COLUMN IF NOT EXISTS energy_wh_integrated DOUBLE",
     "ALTER TABLE runs ADD COLUMN IF NOT EXISTS bench_sample_coverage DOUBLE",
@@ -102,7 +104,7 @@ MIGRATIONS = [
 # accidental SQL injection via keyword names).
 _RUN_COLUMNS = {
     "host", "test", "optimization", "repeat_idx", "config_hash",
-    "kernel", "cpu_model", "governor", "turbo", "ambient_c", "result_name",
+    "kernel", "cpu_model", "memory_bytes", "governor", "turbo", "ambient_c", "result_name",
     "applied_config", "bench_start_temp_c",
     "idle_start", "bench_start", "bench_end",
     "energy_wh_integrated", "energy_wh_bench_start", "energy_wh_bench_end",

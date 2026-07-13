@@ -60,10 +60,16 @@ the defconfig-only kernel build suite's seconds). Store the direction with each 
 |-----------------------------------------------------------|--------------------------|-----------------------|--------------------------------------------------------------------------|
 | `local/power-bench-build-kernel-defconfig-1.0.0`          | lower-is-better (s)      | CPU bursty + I/O      | Local suite pins `pts/build-linux-kernel` to `defconfig` only            |
 | `pts/llama-cpp`                                           | higher-is-better (tok/s) | CPU/mem, sustained    | Optional; can require >100 GB download/environment space in current PTS  |
-| `pts/disk` (suite)                                        | mixed                    | I/O                   | Confirm exact profile id with `phoronix-test-suite list-available-tests` |
+| `pts/disk` (suite)                                        | mixed                    | I/O                   | Opt-in official suite; installed by `pts_install_extended_suites=true`   |
+| `pts/database` (suite)                                    | mixed                    | Database / storage    | Opt-in official suite; large and service-heavy                            |
+| `pts/audio-encoding` (suite)                              | lower-is-better (time)   | Audio encoding        | Opt-in official suite                                                     |
+| `pts/browsers` (suite)                                    | mixed                    | Browser workloads     | Opt-in official suite; requires a suitable browser/display environment   |
 | `pts/memory` (suite)                                      | mixed                    | RAM bandwidth/latency | As above                                                                 |
 
-Confirm each identifier exactly before runs — suite names and profile names differ.
+The named suite identifiers are passed directly to PTS; enable the extended-suite
+installation switch before their first run so downloads and compilation do not occur
+inside a measured interval. Confirm workload prerequisites before runs — suite members
+can have substantial storage, service, graphics, or display requirements.
 The setup playbook owns the local `power-bench-build-kernel-defconfig-1.0.0` suite;
 run the raw `pts/build-linux-kernel` profile only for debugging, because it can select
 both `defconfig` and `allmodconfig`.

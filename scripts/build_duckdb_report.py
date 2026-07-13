@@ -18,6 +18,28 @@ import duckdb
 DEFAULT_ROW_LIMIT = 250
 IDLE_TEST = "idle"
 TEMPLATE = Path(__file__).with_name("report_template.html")
+RUN_TEMPLATE = Path(__file__).with_name("run_report_template.html")
+HOST_SPEC_FIELDS = (
+    ("cpu_model", "CPU model"),
+    ("memory_bytes", "Memory"),
+    ("kernel", "Kernel"),
+    ("scaling_driver", "CPU frequency driver"),
+    ("epp", "Energy performance preference"),
+    ("aspm_policy", "PCIe ASPM policy"),
+    ("io_scheduler", "I/O scheduler"),
+    ("cmdline", "Kernel command line"),
+)
+READING_FIELDS = (
+    "timestamp",
+    "capture_time",
+    "phase",
+    "power_w",
+    "voltage_v",
+    "current_a",
+    "energy_wh",
+    "temperature_c",
+    "power_factor",
+)
 RUN_FIELDS = (
     "run_id",
     "started_at",
@@ -28,6 +50,7 @@ RUN_FIELDS = (
     "config_hash",
     "kernel",
     "cpu_model",
+    "memory_bytes",
     "governor",
     "turbo",
     "ambient_c",
@@ -69,6 +92,114 @@ def json_value(value: Any) -> Any:
     if isinstance(value, (list, tuple)):
         return [json_value(item) for item in value]
     return str(value)
+
+
+def json_mapping(value: Any) -> dict[str, Any]:
+    """Return an applied-configuration JSON object, or an empty mapping."""
+    if not isinstance(value, str):
+        return {}
+    try:
+        parsed = json.loads(value)
+    except json.JSONDecodeError:
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def present(value: Any) -> bool:
+    return value is not None and str(value).strip() != ""
+
+
+def host_config_payload(runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Summarize observed hardware and OS configuration for every benchmark host."""
+    by_host: dict[str, list[dict[str, Any]]] = {}
+    for run in runs:
+        by_host.setdefault(str(run["host"]), []).append(run)
+
+    hosts: list[dict[str, Any]] = []
+    for host, host_runs in sorted(by_host.items()):
+        specs = []
+        for field, label in HOST_SPEC_FIELDS:
+            values: list[Any] = []
+            for run in host_runs:
+                value = run.get(field)
+                if not present(value):
+                    value = json_mapping(run.get("applied_config")).get(field)
+                if present(value) and value not in values:
+                    values.append(value)
+            specs.append({"label": label, "values": values})
+        hosts.append(
+            {
+                "host": host,
+                "runCount": len(host_runs),
+                "specs": specs,
+            }
+        )
+    return hosts
+
+
+def reading_payload(
+    connection: duckdb.DuckDBPyConnection, tables: set[str], run_id: int
+) -> list[dict[str, Any]]:
+    """Return an ordered, chart-ready power history for one run."""
+    if "readings" not in tables:
+        return []
+    columns = set(table_columns(connection, "readings"))
+    if not {"run_id", "power_w"}.issubset(columns):
+        return []
+
+    selections = [
+        quote_identifier(field)
+        if field in columns
+        else f"NULL AS {quote_identifier(field)}"
+        for field in READING_FIELDS
+    ]
+    order = (
+        f"{quote_identifier('timestamp')} ASC NULLS LAST"
+        if "timestamp" in columns
+        else f"{quote_identifier('id')} ASC"
+        if "id" in columns
+        else "1"
+    )
+    readings = rows_as_dicts(
+        connection.execute(
+            f"SELECT {', '.join(selections)} FROM readings "
+            f"WHERE {quote_identifier('run_id')} = ? ORDER BY {order}",
+            [run_id],
+        )
+    )
+    timestamps = [
+        float(reading["timestamp"])
+        for reading in readings
+        if isinstance(reading.get("timestamp"), (int, float))
+        and math.isfinite(float(reading["timestamp"]))
+    ]
+    origin = timestamps[0] if timestamps else None
+    for index, reading in enumerate(readings):
+        timestamp = reading.get("timestamp")
+        if origin is not None and isinstance(timestamp, (int, float)):
+            reading["elapsed_s"] = float(timestamp) - origin
+        else:
+            reading["elapsed_s"] = float(index)
+    return readings
+
+
+def run_detail_payload(
+    connection: duckdb.DuckDBPyConnection,
+    tables: set[str],
+    run: dict[str, Any],
+) -> dict[str, Any]:
+    return {
+        "run": run,
+        "config": json_mapping(run.get("applied_config")),
+        "readings": reading_payload(connection, tables, int(run["run_id"])),
+    }
+
+
+def detail_filename(run_id: Any) -> str | None:
+    try:
+        return f"{int(run_id)}.html"
+    except (TypeError, ValueError):
+        return None
 
 
 def table_names(connection: duckdb.DuckDBPyConnection) -> list[str]:
@@ -247,6 +378,10 @@ def report_payload(
     names = table_names(connection)
     name_set = set(names)
     runs = run_payload(connection, name_set)
+    for run in runs:
+        filename = detail_filename(run.get("run_id"))
+        if filename:
+            run["detail_url"] = f"runs/{filename}"
     raw_tables = [raw_table_payload(connection, table, row_limit) for table in names]
     valid_runs = [run for run in runs if run["valid"]]
     return {
@@ -261,6 +396,7 @@ def report_payload(
             "configurations": sorted({run["optimization"] for run in runs}),
         },
         "runs": runs,
+        "hostConfigs": host_config_payload(runs),
         "tables": raw_tables,
     }
 
@@ -277,9 +413,32 @@ def safe_json_script(data: Any) -> str:
     )
 
 
+def render_run_reports(
+    connection: duckdb.DuckDBPyConnection,
+    tables: set[str],
+    runs: list[dict[str, Any]],
+    output: Path,
+) -> None:
+    """Write one self-contained detail page and power history chart for every run."""
+    template = RUN_TEMPLATE.read_text(encoding="utf-8")
+    run_dir = output.parent / "runs"
+    for run in runs:
+        filename = detail_filename(run.get("run_id"))
+        if not filename:
+            continue
+        page = (
+            template.replace("__RUN_DATA__", safe_json_script(run_detail_payload(connection, tables, run)))
+            .replace("__RUN_ID__", escape(str(run["run_id"])))
+            .replace("__REPORT_FILENAME__", escape(output.name))
+        )
+        run_dir.mkdir(parents=True, exist_ok=True)
+        (run_dir / filename).write_text(page, encoding="utf-8")
+
+
 def render_report(database: Path, output: Path, row_limit: int) -> None:
     with duckdb.connect(str(database), read_only=True) as connection:
         payload = report_payload(connection, row_limit)
+        render_run_reports(connection, set(table_names(connection)), payload["runs"], output)
 
     report = (
         TEMPLATE.read_text(encoding="utf-8")
