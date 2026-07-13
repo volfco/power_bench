@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Render a DuckDB database as a standalone HTML report."""
+"""Render a DuckDB benchmark database as a standalone interactive HTML report."""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ from datetime import date, datetime, time
 from decimal import Decimal
 from html import escape
 import json
+import math
 from pathlib import Path
 from typing import Any
 
@@ -15,21 +16,58 @@ import duckdb
 
 
 DEFAULT_ROW_LIMIT = 250
+IDLE_TEST = "idle"
+TEMPLATE = Path(__file__).with_name("report_template.html")
+RUN_FIELDS = (
+    "run_id",
+    "started_at",
+    "host",
+    "test",
+    "optimization",
+    "repeat_idx",
+    "config_hash",
+    "kernel",
+    "cpu_model",
+    "governor",
+    "turbo",
+    "ambient_c",
+    "applied_config",
+    "bench_start_temp_c",
+    "result_name",
+    "bench_start",
+    "bench_end",
+    "bench_score",
+    "bench_unit",
+    "higher_is_better",
+    "dropped_packets",
+    "checksum_failures",
+    "bench_sample_coverage",
+)
 
 
 def quote_identifier(identifier: str) -> str:
-    return f'"{identifier.replace("\"", "\"\"")}"'
+    return '"' + identifier.replace('"', '""') + '"'
 
 
-def display_value(value: Any) -> str:
-    if value is None:
-        return "—"
+def json_value(value: Any) -> Any:
+    """Return a JSON-safe, human-meaningful representation of a DuckDB value."""
+    if value is None or isinstance(value, (str, int, bool)):
+        return value
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if isinstance(value, Decimal):
+        number = float(value)
+        return number if math.isfinite(number) else None
+    if isinstance(value, datetime):
+        return value.isoformat(sep=" ")
+    if isinstance(value, (date, time)):
+        return value.isoformat()
     if isinstance(value, bytes):
         return f"{len(value)} bytes"
-    if isinstance(value, (date, datetime, time, Decimal)):
-        return str(value)
-    if isinstance(value, (dict, list, tuple)):
-        return json.dumps(value, default=str, ensure_ascii=False)
+    if isinstance(value, dict):
+        return {str(key): json_value(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [json_value(item) for item in value]
     return str(value)
 
 
@@ -44,107 +82,212 @@ def table_names(connection: duckdb.DuckDBPyConnection) -> list[str]:
     ]
 
 
-def table_section(
-    connection: duckdb.DuckDBPyConnection, table: str, row_limit: int
-) -> tuple[int, str]:
-    quoted_table = quote_identifier(table)
-    columns = [
+def table_columns(connection: duckdb.DuckDBPyConnection, table: str) -> list[str]:
+    return [
         row[1]
-        for row in connection.execute(f"PRAGMA table_info({quoted_table})").fetchall()
+        for row in connection.execute(
+            f"PRAGMA table_info({quote_identifier(table)})"
+        ).fetchall()
     ]
+
+
+def rows_as_dicts(cursor: duckdb.DuckDBPyConnection) -> list[dict[str, Any]]:
+    columns = [column[0] for column in cursor.description]
+    return [
+        {column: json_value(value) for column, value in zip(columns, row)}
+        for row in cursor.fetchall()
+    ]
+
+
+def energy_expression(columns: set[str]) -> str:
+    candidates: list[str] = []
+    if "energy_wh_integrated" in columns:
+        candidates.append("r.energy_wh_integrated")
+    if {"energy_wh_bench_start", "energy_wh_bench_end"}.issubset(columns):
+        candidates.append("r.energy_wh_bench_end - r.energy_wh_bench_start")
+    if not candidates:
+        return "CAST(NULL AS DOUBLE)"
+    if len(candidates) == 1:
+        return candidates[0]
+    return f"coalesce({', '.join(candidates)})"
+
+
+def run_payload(
+    connection: duckdb.DuckDBPyConnection, tables: set[str]
+) -> list[dict[str, Any]]:
+    """Return one compact analytical row per run, including phase power summaries."""
+    if "runs" not in tables:
+        return []
+
+    columns = set(table_columns(connection, "runs"))
+    selections = [
+        f"r.{quote_identifier(field)} AS {quote_identifier(field)}"
+        if field in columns
+        else f"NULL AS {quote_identifier(field)}"
+        for field in RUN_FIELDS
+    ]
+    selections.append(f"{energy_expression(columns)} AS energy_wh")
+
+    reading_columns = (
+        set(table_columns(connection, "readings")) if "readings" in tables else set()
+    )
+    has_power_stats = {"run_id", "phase", "power_w"}.issubset(reading_columns)
+    if has_power_stats:
+        selections.extend(
+            (
+                "coalesce(s.idle_samples, 0) AS idle_samples",
+                "coalesce(s.bench_samples, 0) AS bench_samples",
+                "s.idle_power_w",
+                "s.bench_power_w",
+                "s.peak_power_w",
+            )
+        )
+        sample_stats = """
+            WITH sample_stats AS (
+                SELECT run_id,
+                       count(*) FILTER (WHERE phase = 'idle') AS idle_samples,
+                       count(*) FILTER (WHERE phase = 'bench') AS bench_samples,
+                       avg(power_w) FILTER (WHERE phase = 'idle') AS idle_power_w,
+                       avg(power_w) FILTER (WHERE phase = 'bench') AS bench_power_w,
+                       max(power_w) FILTER (WHERE phase = 'bench') AS peak_power_w
+                FROM readings
+                GROUP BY run_id
+            )
+        """
+        join = "LEFT JOIN sample_stats s ON s.run_id = r.run_id"
+    else:
+        selections.extend(
+            (
+                "0 AS idle_samples",
+                "0 AS bench_samples",
+                "CAST(NULL AS DOUBLE) AS idle_power_w",
+                "CAST(NULL AS DOUBLE) AS bench_power_w",
+                "CAST(NULL AS DOUBLE) AS peak_power_w",
+            )
+        )
+        sample_stats = ""
+        join = ""
+
+    order = "r.run_id DESC" if "run_id" in columns else "1"
+    query = f"""
+        {sample_stats}
+        SELECT {', '.join(selections)}
+        FROM runs r
+        {join}
+        ORDER BY {order}
+    """
+    runs = rows_as_dicts(connection.execute(query))
+    coverage_recorded = "bench_sample_coverage" in columns
+    completion_recorded = "bench_end" in columns
+
+    for run in runs:
+        run["optimization"] = run.get("optimization") or "baseline"
+        run["host"] = run.get("host") or "unknown host"
+        run["test"] = run.get("test") or "untitled"
+        dropped = run.get("dropped_packets") or 0
+        if run["test"] == IDLE_TEST:
+            valid = bool(run.get("idle_samples")) and dropped == 0
+            reason = "valid idle capture" if valid else "needs idle samples"
+        else:
+            complete = (
+                run.get("bench_end") is not None
+                if completion_recorded
+                else run.get("bench_score") is not None
+            )
+            scored = run.get("bench_score") is not None
+            coverage = run.get("bench_sample_coverage")
+            covered = (
+                coverage is not None and coverage >= 0.9
+                if coverage_recorded
+                else True
+            )
+            valid = complete and scored and covered and dropped == 0
+            if not complete:
+                reason = "incomplete"
+            elif not scored:
+                reason = "missing result"
+            elif not covered:
+                reason = "low sample coverage"
+            elif dropped:
+                reason = "dropped packets"
+            else:
+                reason = "valid completed run"
+        run["valid"] = valid
+        run["quality_reason"] = reason
+    return runs
+
+
+def raw_table_payload(
+    connection: duckdb.DuckDBPyConnection, table: str, row_limit: int
+) -> dict[str, Any]:
+    columns = table_columns(connection, table)
+    quoted_table = quote_identifier(table)
     row_count = connection.execute(f"SELECT count(*) FROM {quoted_table}").fetchone()[0]
     order_column = "run_id" if "run_id" in columns else columns[0] if columns else None
     query = f"SELECT * FROM {quoted_table}"
     if order_column:
         query += f" ORDER BY {quote_identifier(order_column)} DESC NULLS LAST"
     query += " LIMIT ?"
-    rows = connection.execute(query, [row_limit]).fetchall()
+    rows = [
+        [json_value(value) for value in row]
+        for row in connection.execute(query, [row_limit]).fetchall()
+    ]
+    return {
+        "name": table,
+        "columns": columns,
+        "rows": rows,
+        "rowCount": row_count,
+        "shown": len(rows),
+    }
 
-    heading = escape(table)
-    details = f"{row_count:,} row{'s' if row_count != 1 else ''}"
-    if row_count > len(rows):
-        details += f"; showing the latest {len(rows):,}"
 
-    rendered_rows = "".join(
-        "<tr>"
-        + "".join(f"<td>{escape(display_value(value))}</td>" for value in row)
-        + "</tr>"
-        for row in rows
+def report_payload(
+    connection: duckdb.DuckDBPyConnection, row_limit: int
+) -> dict[str, Any]:
+    names = table_names(connection)
+    name_set = set(names)
+    runs = run_payload(connection, name_set)
+    raw_tables = [raw_table_payload(connection, table, row_limit) for table in names]
+    valid_runs = [run for run in runs if run["valid"]]
+    return {
+        "meta": {
+            "generatedAt": datetime.now().astimezone().isoformat(timespec="minutes"),
+            "tableCount": len(names),
+            "totalRows": sum(table["rowCount"] for table in raw_tables),
+            "runCount": len(runs),
+            "validRunCount": len(valid_runs),
+            "hosts": sorted({run["host"] for run in runs}),
+            "tests": sorted({run["test"] for run in runs}),
+            "configurations": sorted({run["optimization"] for run in runs}),
+        },
+        "runs": runs,
+        "tables": raw_tables,
+    }
+
+
+def safe_json_script(data: Any) -> str:
+    """Encode JSON so data values cannot terminate the enclosing script element."""
+    return (
+        json.dumps(data, ensure_ascii=False, allow_nan=False, separators=(",", ":"))
+        .replace("&", "\\u0026")
+        .replace("<", "\\u003c")
+        .replace(">", "\\u003e")
+        .replace("\u2028", "\\u2028")
+        .replace("\u2029", "\\u2029")
     )
-    if not rendered_rows:
-        rendered_rows = f'<tr><td colspan="{max(1, len(columns))}">No rows.</td></tr>'
-
-    rendered_columns = "".join(f"<th>{escape(column)}</th>" for column in columns)
-    return row_count, f"""
-    <section id="{heading}">
-      <h2>{heading}</h2>
-      <p class="table-summary">{details}</p>
-      <div class="table-wrap">
-        <table>
-          <thead><tr>{rendered_columns}</tr></thead>
-          <tbody>{rendered_rows}</tbody>
-        </table>
-      </div>
-    </section>
-    """
 
 
 def render_report(database: Path, output: Path, row_limit: int) -> None:
     with duckdb.connect(str(database), read_only=True) as connection:
-        tables = table_names(connection)
-        sections: list[str] = []
-        total_rows = 0
-        for table in tables:
-            row_count, section = table_section(connection, table, row_limit)
-            total_rows += row_count
-            sections.append(section)
+        payload = report_payload(connection, row_limit)
 
-    table_links = "".join(
-        f'<li><a href="#{escape(table)}">{escape(table)}</a></li>' for table in tables
+    report = (
+        TEMPLATE.read_text(encoding="utf-8")
+        .replace("__REPORT_DATA__", safe_json_script(payload))
+        .replace("__GENERATED_AT__", escape(payload["meta"]["generatedAt"]))
+        .replace("__DATABASE_NAME__", escape(database.name))
+        .replace("__ROW_LIMIT__", f"{row_limit:,}")
     )
-    generated_at = datetime.now().astimezone().strftime("%Y-%m-%d %H:%M %Z")
-    report = f"""<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Benchmark data report</title>
-  <style>
-    :root {{ color-scheme: light dark; font-family: system-ui, sans-serif; }}
-    body {{ margin: 0; color: #1f2933; background: #f7fafc; }}
-    header, main {{ max-width: 1200px; margin: auto; padding: 1.5rem; }}
-    header {{ max-width: none; color: white; background: #155799; }}
-    header > div {{ max-width: 1200px; margin: auto; }}
-    h1 {{ margin: 0; }}
-    h2 {{ margin-top: 2.5rem; }}
-    a {{ color: #155799; }}
-    header a {{ color: white; }}
-    .summary, .table-summary {{ color: #52606d; }}
-    .table-wrap {{ overflow-x: auto; background: white; border: 1px solid #d9e2ec; }}
-    table {{ width: 100%; border-collapse: collapse; font-size: .9rem; }}
-    th, td {{ padding: .6rem .75rem; text-align: left; vertical-align: top; border-bottom: 1px solid #e4e7eb; }}
-    th {{ position: sticky; top: 0; background: #edf2f7; white-space: nowrap; }}
-    td {{ max-width: 28rem; overflow-wrap: anywhere; }}
-    @media (prefers-color-scheme: dark) {{
-      body, .table-wrap {{ color: #e6edf3; background: #0d1117; }}
-      .summary, .table-summary {{ color: #b1bac4; }}
-      th {{ background: #161b22; }}
-      th, td, .table-wrap {{ border-color: #30363d; }}
-      a {{ color: #79c0ff; }}
-      header a {{ color: white; }}
-    }}
-  </style>
-</head>
-<body>
-  <header><div><h1>Benchmark data report</h1><p><a href="./">Read the analysis report</a></p></div></header>
-  <main>
-    <p class="summary">Generated from <code>{escape(database.as_posix())}</code> on {escape(generated_at)}. {len(tables):,} tables and {total_rows:,} rows.</p>
-    <nav aria-label="Database tables"><ul>{table_links}</ul></nav>
-    {''.join(sections)}
-  </main>
-</body>
-</html>
-"""
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(report, encoding="utf-8")
 

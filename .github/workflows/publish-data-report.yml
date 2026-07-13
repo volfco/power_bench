@@ -6,6 +6,8 @@ on:
     paths:
       - benchmarks/power_meter.duckdb
       - scripts/build_duckdb_report.py
+      - scripts/report_template.html
+      - tests/test_build_duckdb_report.py
       - .github/workflows/publish-data-report.yml
   workflow_run:
     workflows: [Publish benchmark report]
@@ -45,6 +47,9 @@ jobs:
 
       - name: Install DuckDB
         run: python -m pip install --disable-pip-version-check 'duckdb>=1.0'
+
+      - name: Validate report generator
+        run: python -m unittest tests.test_build_duckdb_report
 
       - name: Generate report site
         run: |
