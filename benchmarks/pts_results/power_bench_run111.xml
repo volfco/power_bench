@@ -1,0 +1,38 @@
+<?xml version="1.0"?>
+<!--Phoronix Test Suite v10.8.4-->
+<PhoronixTestSuite>
+  <Generated>
+    <Title>power_bench_run111</Title>
+    <LastModified>2026-07-13 07:04:38</LastModified>
+    <TestClient>Phoronix Test Suite v10.8.4</TestClient>
+    <Description>power_bench automated run</Description>
+  </Generated>
+  <System>
+    <Identifier>power_bench_run111</Identifier>
+    <Hardware>Processor: AMD Ryzen 5 7640HS @ 5.02GHz (6 Cores / 12 Threads), Motherboard: GMKtec (NucBox M6 Ultra 1.02 BIOS), Chipset: AMD Phoenix Root Complex, Memory: 12GB, Disk: AirDisk 512GB SSD, Graphics: AMD Phoenix1 (2599/2400MHz), Audio: AMD Radeon HD Audio, Network: 2 x Realtek RTL8125 2.5GbE + MEDIATEK MT7922 802.11ax PCI</Hardware>
+    <Software>OS: Ubuntu 26.04, Kernel: 7.0.0-27-generic (x86_64), Compiler: GCC 15.2.0, File-System: ext4</Software>
+    <User>metrolla</User>
+    <TimeStamp>2026-07-13 07:01:40</TimeStamp>
+    <TestClientVersion>10.8.4</TestClientVersion>
+    <Notes></Notes>
+    <JSON>{"compiler-configuration":"--build=x86_64-linux-gnu --disable-vtable-verify --disable-werror --enable-bootstrap --enable-cet --enable-checking=release --enable-clocale=gnu --enable-default-pie --enable-gnu-unique-object --enable-languages=c,ada,c++,go,d,fortran,objc,obj-c++,m2,rust,cobol,algol68 --enable-libphobos-checking=release --enable-libstdcxx-backtrace --enable-libstdcxx-debug --enable-libstdcxx-time=yes --enable-link-serialization=2 --enable-multiarch --enable-multilib --enable-nls --enable-objc-gc=auto --enable-offload-defaulted --enable-offload-targets=nvptx-none=\/build\/gcc-15-j35TAX\/gcc-15-15.2.0\/debian\/tmp-nvptx\/usr,amdgcn-amdhsa=\/build\/gcc-15-j35TAX\/gcc-15-15.2.0\/debian\/tmp-gcn\/usr --enable-plugin --enable-shared --enable-threads=posix --host=x86_64-linux-gnu --program-prefix=x86_64-linux-gnu- --target=x86_64-linux-gnu --with-abi=m64 --with-arch-32=i686 --with-build-config=bootstrap-lto-lean --with-default-libstdcxx-abi=new --with-gcc-major-version-only --with-multilib-list=m32,m64,mx32 --with-target-system-zlib=auto --with-tune=generic --without-cuda-driver -v","cpu-scaling-governor":"amd-pstate-epp powersave (Boost: Enabled EPP: balance_performance)","cpu-microcode":"0xa704108","kernel-extra-details":"Transparent Huge Pages: madvise","security":"gather_data_sampling: Not affected + ghostwrite: Not affected + indirect_target_selection: Not affected + itlb_multihit: Not affected + l1tf: Not affected + mds: Not affected + meltdown: Not affected + mmio_stale_data: Not affected + old_microcode: Not affected + reg_file_data_sampling: Not affected + retbleed: Not affected + spec_rstack_overflow: Mitigation of Safe RET + spec_store_bypass: Mitigation of SSB disabled via prctl + spectre_v1: Mitigation of usercopy\/swapgs barriers and __user pointer sanitization + spectre_v2: Mitigation of Enhanced \/ Automatic IBRS; IBPB: conditional; STIBP: always-on; PBRSB-eIBRS: Not affected; BHI: Not affected + srbds: Not affected + tsa: Mitigation of Clear buffers + tsx_async_abort: Not affected + vmscape: Mitigation of IBPB before exit userspace"}</JSON>
+  </System>
+  <Result>
+    <Identifier>pts/build-linux-kernel-1.18.0</Identifier>
+    <Title>Timed Linux Kernel Compilation</Title>
+    <AppVersion>7.0</AppVersion>
+    <Arguments>defconfig</Arguments>
+    <Description>Build: defconfig</Description>
+    <Scale>Seconds</Scale>
+    <Proportion>LIB</Proportion>
+    <DisplayFormat>BAR_GRAPH</DisplayFormat>
+    <Data>
+      <Entry>
+        <Identifier>power_bench_run111</Identifier>
+        <Value>162.133</Value>
+        <RawString></RawString>
+        <JSON>{"test-run-times":"162.13"}</JSON>
+      </Entry>
+    </Data>
+  </Result>
+</PhoronixTestSuite>
