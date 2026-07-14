@@ -1,0 +1,138 @@
+---
+# Shared by install_scx.yml and apply_optimizations.yml. Keep the release and
+# commit together: the tag is convenient for the shallow clone and the commit
+# assertion prevents a moved upstream tag from silently changing benchmarks.
+- name: Install audited sched_ext userspace schedulers
+  block:
+    - name: Verify the kernel supports sched_ext
+      stat:
+        path: /sys/kernel/sched_ext
+      register: scx_install_sysfs
+
+    - name: Fail clearly if sched_ext is unavailable
+      assert:
+        that: scx_install_sysfs.stat.exists
+        fail_msg: "kernel {{ ansible_kernel }} lacks /sys/kernel/sched_ext"
+
+    - name: Install SCX build dependencies
+      apt:
+        name: "{{ scx_build_packages }}"
+        state: present
+        update_cache: true
+
+    - name: Create the pinned SCX source parent directory
+      file:
+        path: /opt/power_bench
+        state: directory
+        mode: '0755'
+
+    - name: Fetch sched-ext/scx at the audited upstream release
+      git:
+        repo: https://github.com/sched-ext/scx.git
+        dest: "{{ scx_source_dir }}"
+        version: "v{{ scx_version }}"
+        depth: 1
+        single_branch: true
+        update: false
+
+    - name: Resolve the checked-out SCX revision
+      command: git rev-parse HEAD
+      args:
+        chdir: "{{ scx_source_dir }}"
+      register: scx_source_head
+      changed_when: false
+
+    - name: Verify the audited SCX source revision
+      assert:
+        that: scx_source_head.stdout == scx_source_revision
+        fail_msg: >-
+          sched-ext/scx v{{ scx_version }} resolved to {{ scx_source_head.stdout }},
+          expected audited commit {{ scx_source_revision }}
+
+    - name: Check for built scheduler artifacts
+      stat:
+        path: "{{ scx_source_dir }}/target/release/{{ item }}"
+      loop: "{{ scx_schedulers }}"
+      register: scx_build_artifacts
+
+    - name: Build the schedulers included in the benchmark matrix
+      command:
+        argv:
+          - cargo
+          - build
+          - --release
+          - --package
+          - scx_lavd
+          - --package
+          - scx_bpfland
+          - --package
+          - scx_rusty
+          - --package
+          - scx_tickless
+          - --package
+          - scx_flash
+        chdir: "{{ scx_source_dir }}"
+      when: >-
+        scx_build_artifacts.results
+        | selectattr('stat.exists', 'equalto', false)
+        | list
+        | length > 0
+
+    - name: Create the versioned SCX install directory
+      file:
+        path: "{{ scx_install_dir }}"
+        state: directory
+        mode: '0755'
+
+    - name: Install the audited scheduler executables
+      copy:
+        src: "{{ scx_source_dir }}/target/release/{{ item }}"
+        dest: "{{ scx_install_dir }}/{{ item }}"
+        remote_src: true
+        owner: root
+        group: root
+        mode: '0755'
+      loop: "{{ scx_schedulers }}"
+
+    - name: Expose the audited scheduler executables on PATH
+      file:
+        src: "{{ scx_install_dir }}/{{ item }}"
+        dest: "/usr/local/bin/{{ item }}"
+        state: link
+        force: true
+      loop: "{{ scx_schedulers }}"
+
+    - name: Audit installed scheduler versions
+      command: "/usr/local/bin/{{ item }} --version"
+      loop: "{{ scx_schedulers }}"
+      register: scx_versions
+      changed_when: false
+
+    - name: Report installed SCX scheduler versions
+      debug:
+        msg: "{{ scx_versions.results | map(attribute='stdout') | list }}"
+  vars:
+    scx_version: "1.1.1"
+    scx_source_revision: "0eedd05bc233129fd3c884d7045edeb2c2a474a7"
+    scx_source_dir: "/opt/power_bench/scx-{{ scx_version }}"
+    scx_install_dir: "/usr/local/lib/power_bench/scx-{{ scx_version }}"
+    scx_schedulers:
+      - scx_lavd
+      - scx_bpfland
+      - scx_rusty
+      - scx_tickless
+      - scx_flash
+    scx_build_packages:
+      - build-essential
+      - cmake
+      - cargo
+      - rustc
+      - clang
+      - llvm
+      - git
+      - pkg-config
+      - libelf-dev
+      - protobuf-compiler
+      - libseccomp-dev
+      - libbpf-dev
+      - pahole

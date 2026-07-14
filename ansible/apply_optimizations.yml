@@ -215,14 +215,14 @@
           fail:
             msg: "kernel {{ ansible_kernel }} lacks sched_ext (need >= 6.12 with CONFIG_SCHED_CLASS_EXT)"
           when: not scx_sysfs.stat.exists
-        - name: Install SCX (Debian)
-          apt: { name: scx, state: present, update_cache: true }
-          when: ansible_os_family == "Debian"
+        - name: Check whether the requested scheduler binary is installed
+          shell: "command -v {{ scx_scheduler }}"
+          register: scx_bin_before_install
+          changed_when: false
           failed_when: false
-        - name: Install SCX (RedHat)
-          dnf: { name: scx-scheds, state: present }
-          when: ansible_os_family == "RedHat"
-          failed_when: false
+        - name: Install pinned SCX binaries when the requested scheduler is missing
+          include_tasks: tasks/install_scx.yml
+          when: scx_bin_before_install.rc != 0
         - name: Resolve scheduler binary
           shell: "command -v {{ scx_scheduler }}"
           register: scx_bin
