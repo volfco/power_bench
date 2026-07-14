@@ -124,8 +124,9 @@ class DuckDbReportTests(unittest.TestCase):
         self.assertIn('id="rankChart"', report)
         self.assertIn('data-view="hosts"', report)
         self.assertIn('id="hostsView"', report)
-        self.assertIn('id="hostSpread"', report)
-        self.assertIn('id="hostDelta"', report)
+        self.assertIn('id="hostAverageChart"', report)
+        self.assertIn('id="hostDeltaChart"', report)
+        self.assertIn('chart.js@4.5.1', report)
         self.assertIn("function renderHosts(", report)
         self.assertIn('id="scatter"', report)
         self.assertIn('id="heatmap"', report)
@@ -212,7 +213,8 @@ class DuckDbReportTests(unittest.TestCase):
         self.assertEqual(next(row for row in compile_rows if row["host"] == "alpha")["average_energy_wh"], 10.0)
         self.assertIn('/api/host-comparisons', PAGE)
         self.assertIn('id="hostCompareView"', PAGE)
-        self.assertIn('id="hostCompareSpread"', PAGE)
+        self.assertIn('id="hostCompareAverage"', PAGE)
+        self.assertIn('chart.js@4.5.1', PAGE)
         self.assertIn('function renderHostComparisons(', PAGE)
 
 
