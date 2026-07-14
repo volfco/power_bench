@@ -285,6 +285,57 @@ class DatabaseReader:
                     matrix.append(item)
         return matrix
 
+    def host_comparisons(self) -> list[dict[str, Any]]:
+        """Return valid-run measurement ranges grouped by host, test, and configuration."""
+        with self.connect() as conn:
+            tables = self.table_names(conn)
+            if "runs" not in tables:
+                return []
+            columns = self.run_columns(conn)
+            dropped = "coalesce(r.dropped_packets, 0)" if "dropped_packets" in columns else "0"
+            coverage = "coalesce(r.bench_sample_coverage, 0)" if "bench_sample_coverage" in columns else "0"
+            complete = "r.bench_end IS NOT NULL" if "bench_end" in columns else "FALSE"
+            scored = "r.bench_score IS NOT NULL" if "bench_score" in columns else "FALSE"
+            energy = "r.energy_wh_integrated" if "energy_wh_integrated" in columns else "NULL"
+            score = "r.bench_score" if "bench_score" in columns else "NULL"
+            readings = """
+                run_readings AS (
+                    SELECT run_id, count(*) FILTER (WHERE phase = 'idle') AS idle_samples,
+                           avg(power_w) FILTER (WHERE phase = 'idle') AS idle_power_w,
+                           avg(power_w) FILTER (WHERE phase = 'bench') AS bench_power_w
+                    FROM readings GROUP BY run_id
+                )
+            """ if "readings" in tables else """
+                run_readings AS (
+                    SELECT CAST(NULL AS INTEGER) AS run_id, CAST(0 AS BIGINT) AS idle_samples,
+                           CAST(NULL AS DOUBLE) AS idle_power_w, CAST(NULL AS DOUBLE) AS bench_power_w WHERE FALSE
+                )
+            """
+            valid = f"""CASE WHEN coalesce(r.test, '') = ? THEN coalesce(rr.idle_samples, 0) > 0 AND {dropped} = 0 ELSE {complete} AND {scored} AND {coverage} >= 0.9 AND {dropped} = 0 END"""
+            return rows_as_dicts(conn.execute(
+                f"""
+                WITH {readings}
+                SELECT coalesce(r.host, 'unknown host') AS host,
+                       coalesce(r.optimization, 'baseline') AS optimization,
+                       coalesce(r.test, 'untitled') AS test,
+                       count(*) FILTER (WHERE {valid}) AS valid_count,
+                       avg({energy}) FILTER (WHERE {valid}) AS average_energy_wh,
+                       min({energy}) FILTER (WHERE {valid}) AS minimum_energy_wh,
+                       max({energy}) FILTER (WHERE {valid}) AS maximum_energy_wh,
+                       avg(rr.idle_power_w) FILTER (WHERE {valid}) AS average_idle_power_w,
+                       min(rr.idle_power_w) FILTER (WHERE {valid}) AS minimum_idle_power_w,
+                       max(rr.idle_power_w) FILTER (WHERE {valid}) AS maximum_idle_power_w,
+                       avg(rr.bench_power_w) FILTER (WHERE {valid}) AS average_bench_power_w,
+                       min(rr.bench_power_w) FILTER (WHERE {valid}) AS minimum_bench_power_w,
+                       max(rr.bench_power_w) FILTER (WHERE {valid}) AS maximum_bench_power_w,
+                       avg({score}) FILTER (WHERE {valid}) AS average_bench_score,
+                       min({score}) FILTER (WHERE {valid}) AS minimum_bench_score,
+                       max({score}) FILTER (WHERE {valid}) AS maximum_bench_score
+                FROM runs r LEFT JOIN run_readings rr ON rr.run_id = r.run_id
+                GROUP BY 1, 2, 3 ORDER BY test, optimization, host
+                """,
+                [IDLE_TEST] * 13,
+            ))
     @staticmethod
     def planned_test(optimization: str, test: str, target: str | None) -> bool:
         """Whether the suite catalog intentionally schedules a test for a variant."""
@@ -401,6 +452,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
             query = {key: values[-1] for key, values in parse_qs(parsed.query).items() if values}
             self.send_json(self.reader.aggregates(query))
             return
+        if parsed.path == "/api/host-comparisons":
+            self.send_json(self.reader.host_comparisons())
+            return
         if parsed.path == "/api/coverage":
             self.send_json(self.reader.coverage())
             return
@@ -502,6 +556,7 @@ PAGE = r'''<!doctype html>
     .results-table { font-size:12px; }.results-table th{position:static}.results-table td{padding:7px 8px;white-space:normal}
     .comparison { margin-top:18px; }.compare-list{padding:0 16px 16px}.compare-row{display:grid;grid-template-columns:minmax(155px,1fr) minmax(120px,2.2fr) 74px;gap:10px;align-items:center;margin:9px 0}.compare-label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;font-weight:650}.bar-track{height:17px;border-radius:4px;background:#e5ebe5;overflow:hidden}.bar{height:100%;min-width:2px;border-radius:4px;background:linear-gradient(90deg,var(--teal),#47a78c)}.bar-value{text-align:right;font-size:12px;font-variant-numeric:tabular-nums}.error{margin:12px 0;padding:10px 12px;border:1px solid #e6b4b8;border-radius:7px;color:#8a2630;background:#fff0f1}.loading{color:var(--muted)}
     .header-actions { display:flex; gap:12px; align-items:center; }.view-switch { display:flex; gap:3px; padding:3px; border:1px solid var(--line); border-radius:9px; background:#edf1eb; }.view-switch button { border:0; border-radius:6px; color:var(--muted); background:transparent; padding:6px 9px; font-size:12px; font-weight:700; }.view-switch button[aria-selected="true"] { color:white; background:var(--teal); }.page-view[hidden] { display:none; }.coverage-toolbar { display:grid; grid-template-columns:minmax(190px,1fr) minmax(240px,1.6fr) minmax(180px,1fr); gap:10px; padding:0 16px 16px; }.coverage-summary { display:flex; flex-wrap:wrap; gap:7px; padding:0 16px 13px; }.coverage-summary .chip { border:1px solid transparent; }.coverage-wrap { overflow:auto; max-height:calc(100vh - 300px); min-height:540px; border-top:1px solid var(--line); }.coverage-table td { white-space:normal; }.coverage-table .test-name { min-width:240px; max-width:330px; overflow-wrap:anywhere; }.coverage-table .optimization-name { min-width:205px; font-weight:700; }.coverage-table .result { min-width:150px; }.coverage-table .latest { min-width:130px; }.status-complete { color:#13693d; background:#dff3e4; }.status-attention { color:#89500b; background:#fff0c9; }.status-incomplete { color:#a12b36; background:#fbe0e2; }.status-missing { color:#89500b; background:#fff0c9; }.status-skipped { color:#45625e; background:#e5ece8; }.open-run { border:0; border-bottom:1px solid var(--teal); color:var(--teal-dark); background:transparent; padding:0; font-size:11px; font-weight:700; }
+    .host-compare-toolbar{display:grid;grid-template-columns:repeat(4,minmax(150px,1fr));gap:10px;padding:0 16px 16px}.host-charts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;padding:0 16px 16px}.host-chart{min-height:250px;overflow:auto;border:1px solid var(--line);border-radius:8px;padding:8px}.host-chart svg{display:block;width:100%;min-width:620px}@media(max-width:900px){.host-compare-toolbar,.host-charts{grid-template-columns:repeat(2,minmax(0,1fr))}}
     @media (max-width:1100px){.summary{grid-template-columns:repeat(3,1fr)}.main{grid-template-columns:1fr}.table-wrap{max-height:510px}.detail{min-height:0}.empty{min-height:220px}}
     @media (max-width:720px){.shell{padding:19px 14px 30px}header{display:block}.header-actions{margin-top:13px;justify-content:space-between}.refresh{margin-top:0}.summary{grid-template-columns:repeat(2,1fr)}.filters,.coverage-toolbar{grid-template-columns:1fr 1fr}.filters .field:last-of-type{grid-column:span 2}.coverage-toolbar .field:last-child{grid-column:span 2}.clear{justify-self:start}.metrics{grid-template-columns:1fr}.metric{border-right:0;border-bottom:1px solid var(--line)}.metric:last-child{border-bottom:0}.properties{grid-template-columns:1fr}.property:nth-last-child(2){border-bottom:1px solid #e7ece6}.compare-row{grid-template-columns:115px 1fr 62px}.phase-grid{grid-template-columns:1fr}.run-title h2{font-size:21px}}
   </style>
@@ -510,7 +565,7 @@ PAGE = r'''<!doctype html>
   <main class="shell">
     <header>
       <div><p class="eyebrow">DuckDB run explorer</p><h1>Power bench, in context.</h1><p class="subhead">Compare every recorded test run, inspect the configuration that produced it, and trace its power readings through idle and load.</p></div>
-      <div class="header-actions"><div class="view-switch" role="tablist" aria-label="Dashboard view"><button id="explorerTab" type="button" role="tab" aria-controls="explorerView" aria-selected="true">Run explorer</button><button id="coverageTab" type="button" role="tab" aria-controls="coverageView" aria-selected="false">Test coverage</button></div><button class="refresh" id="refresh" type="button">↻ Refresh data</button></div>
+      <div class="header-actions"><div class="view-switch" role="tablist" aria-label="Dashboard view"><button id="explorerTab" type="button" role="tab" aria-controls="explorerView" aria-selected="true">Run explorer</button><button id="hostCompareTab" type="button" role="tab" aria-controls="hostCompareView" aria-selected="false">Host comparison</button><button id="coverageTab" type="button" role="tab" aria-controls="coverageView" aria-selected="false">Test coverage</button></div><button class="refresh" id="refresh" type="button">↻ Refresh data</button></div>
     </header>
     <section class="summary" aria-label="Database summary">
       <div class="stat"><span class="value" id="runCount">—</span><span class="label">recorded runs</span></div>
@@ -548,9 +603,10 @@ PAGE = r'''<!doctype html>
         <div class="coverage-wrap"><table class="coverage-table"><thead><tr><th>Host</th><th>Optimization</th><th>Test</th><th>State</th><th class="num">Result</th><th class="num">Energy</th><th class="num">Runs</th><th>Latest</th></tr></thead><tbody id="coverage"><tr><td colspan="8" class="loading">Loading test coverage…</td></tr></tbody></table></div>
       </section>
     </section>
+    <section class="page-view" id="hostCompareView" hidden><section class="panel" aria-labelledby="hostCompareTitle"><div class="panel-head"><div><h2 id="hostCompareTitle">Host measurement comparison</h2><span class="caption">Spread is the valid-run minimum to maximum, with the mean shown as a dot. Deltas compare cohort means.</span></div></div><div class="host-compare-toolbar"><div class="field"><label for="hostCompareMetric">Measurement</label><select id="hostCompareMetric"><option value="energy">Integrated energy (Wh)</option><option value="idle">Idle power (W)</option><option value="power">Load power (W)</option><option value="score">Benchmark result</option></select></div><div class="field"><label for="hostCompareReference">Reference host</label><select id="hostCompareReference"></select></div><div class="field"><label for="hostCompareTest">Test</label><select id="hostCompareTest"></select></div><div class="field"><label for="hostCompareOptimization">Optimization</label><select id="hostCompareOptimization"></select></div></div><div class="host-charts"><div><p class="eyebrow">Spread</p><div class="host-chart" id="hostCompareSpread"></div></div><div><p class="eyebrow">Delta</p><div class="host-chart" id="hostCompareDelta"></div></div></div></section></section>
   </main>
   <script>
-    const state = { runs: [], coverage: [], selected: null, filters: {} };
+    const state = { runs: [], coverage: [], hostComparisons: [], selected: null, filters: {} };
     const $ = (selector) => document.querySelector(selector);
     const escapeHtml = (value) => String(value ?? '').replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
     const number = (value, digits = 2) => value == null || Number.isNaN(Number(value)) ? '—' : Number(value).toLocaleString(undefined, { maximumFractionDigits: digits, minimumFractionDigits: 0 });
@@ -570,7 +626,11 @@ PAGE = r'''<!doctype html>
     function coverageResult(row) { if (row.average_bench_score != null) return `${number(row.average_bench_score,3)}${row.bench_unit ? ` ${escapeHtml(row.bench_unit)}` : ''}`; if (row.average_idle_power_w != null) return `idle ${number(row.average_idle_power_w,2)} W`; return '—'; }
     function renderCoverage() { const rows = coverageRows(); const counts = rows.reduce((all,row) => ({...all,[row.status]:(all[row.status] || 0) + 1}), {}); $('#coverageCount').textContent = `${rows.length} combinations · ${counts.complete || 0} complete · ${counts.missing || 0} not run`; const tbody = $('#coverage'); if (!rows.length) { tbody.innerHTML = '<tr><td colspan="8" class="loading">No coverage combinations match these filters.</td></tr>'; return; } tbody.innerHTML = rows.map(row => { const runs = row.run_count ? `${row.valid_count}/${row.run_count} valid` : '—'; const latest = row.latest_run_id == null ? '—' : `<button class="open-run" type="button" data-id="${row.latest_run_id}">#${row.latest_run_id} · ${escapeHtml(dateTime(row.latest_started_at))}</button>`; return `<tr><td>${escapeHtml(row.host)}</td><td class="optimization-name">${escapeHtml(row.optimization)}</td><td class="test-name">${escapeHtml(row.test)}</td><td><span class="chip status-${escapeHtml(row.status)}">${escapeHtml(coverageLabel(row.status))}</span></td><td class="num result">${coverageResult(row)}</td><td class="num">${row.average_energy_wh == null ? '—' : `${number(row.average_energy_wh,3)} Wh`}</td><td class="num">${runs}</td><td class="latest">${latest}</td></tr>`; }).join(''); tbody.querySelectorAll('.open-run').forEach(button => button.addEventListener('click', () => { setView('explorer'); selectRun(Number(button.dataset.id)); })); }
     async function loadCoverage() { const coverage = await api('/api/coverage'); state.coverage = coverage; fillSelect('#coverageHost', [...new Set(coverage.map(row => row.host))], 'All hosts'); fillSelect('#coverageTest', [...new Set(coverage.map(row => row.test))], 'All tests'); renderCoverage(); }
-    function setView(view) { const coverage = view === 'coverage'; $('#explorerView').hidden = coverage; $('#coverageView').hidden = !coverage; $('#explorerTab').setAttribute('aria-selected', String(!coverage)); $('#coverageTab').setAttribute('aria-selected', String(coverage)); }
+    function hostCompareRows(){const fields={energy:['average_energy_wh','minimum_energy_wh','maximum_energy_wh'],idle:['average_idle_power_w','minimum_idle_power_w','maximum_idle_power_w'],power:['average_bench_power_w','minimum_bench_power_w','maximum_bench_power_w'],score:['average_bench_score','minimum_bench_score','maximum_bench_score']}[$('#hostCompareMetric').value],test=$('#hostCompareTest').value,optimization=$('#hostCompareOptimization').value;return state.hostComparisons.filter(r=>Number(r.valid_count)>0&&r[fields[0]]!=null&&(!test||r.test===test)&&(!optimization||r.optimization===optimization)).map(r=>({...r,mean:Number(r[fields[0]]),min:Number(r[fields[1]]),max:Number(r[fields[2]])})).sort((a,b)=>a.test.localeCompare(b.test)||a.optimization.localeCompare(b.optimization)||a.host.localeCompare(b.host))}
+    function renderHostChart(rows,target,delta){if(!rows.length){target.innerHTML='<div class="empty">No valid host measurements match these filters.</div>';return}const W=830,R=32,H=rows.length*R+30,L=230,values=rows.flatMap(r=>delta?[r.delta]:[r.min,r.max]),E=Math.max(1,...values.map(v=>Math.abs(v))),lo=delta?-E:Math.min(...values),hi=delta?E:Math.max(...values),x=v=>L+(v-lo)/Math.max(1,hi-lo)*(W-L-72),zero=delta?x(0):null,marks=rows.map((r,i)=>{const y=18+i*R,label=(shortTest(r.test)+' · '+r.optimization+' · '+r.host).slice(0,40),a=delta?zero:x(r.min),b=delta?x(r.delta):x(r.max),dot=delta?x(r.delta):x(r.mean),value=delta?(r.delta>=0?'+':'')+number(r.delta,1)+'%':number(r.mean,3),ink=delta?(r.delta>=0?'#087e78':'#c94e56'):'#173f53';return `<text x="${L-8}" y="${y+13}" text-anchor="end">${escapeHtml(label)}</text><line x1="${a}" x2="${b}" y1="${y+8}" y2="${y+8}" stroke="${ink}" stroke-width="5" stroke-linecap="round"/><circle cx="${dot}" cy="${y+8}" r="5" fill="${ink}"><title>${escapeHtml(label)}: ${value}</title></circle><text x="${dot+7}" y="${y+13}">${value}</text>`;}).join('');target.innerHTML=`<svg viewBox="0 0 ${W} ${H}" style="height:${Math.max(225,H)}px"><style>text{font:11px system-ui;fill:#202a2b}</style>${delta?`<line x1="${zero}" x2="${zero}" y1="2" y2="${H-18}" stroke="#d8e0dc"/>`:''}${marks}</svg>`}
+    function renderHostComparisons(){const rows=hostCompareRows(),reference=$('#hostCompareReference').value,lookup=new Map(rows.map(r=>[[r.test,r.optimization,r.host].join('\0'),r])),deltas=rows.filter(r=>r.host!==reference).map(r=>{const base=lookup.get([r.test,r.optimization,reference].join('\0'));return{...r,delta:base&&base.mean?(r.mean/base.mean-1)*100:null}}).filter(r=>Number.isFinite(r.delta));renderHostChart(rows,$('#hostCompareSpread'),false);renderHostChart(deltas,$('#hostCompareDelta'),true)}
+    async function loadHostComparisons(){const rows=await api('/api/host-comparisons');state.hostComparisons=rows;fillSelect('#hostCompareReference',[...new Set(rows.map(r=>r.host))],'Reference host');fillSelect('#hostCompareTest',[...new Set(rows.map(r=>r.test))],'All tests');fillSelect('#hostCompareOptimization',[...new Set(rows.map(r=>r.optimization))],'All optimizations');if(!$('#hostCompareReference').value&&rows.length)$('#hostCompareReference').value=rows[0].host;renderHostComparisons()}
+    function setView(view) { ['explorer','hostCompare','coverage'].forEach(name=>{const active=name===view;$(`#${name}View`).hidden=!active;$(`#${name}Tab`).setAttribute('aria-selected',String(active));}); }
     function displayValue(value) { if (value === null || value === undefined || value === '') return '—'; if (typeof value === 'boolean') return value ? 'yes' : 'no'; if (typeof value === 'number') return number(value, 4); return String(value); }
     function propertyRows(values) { return Object.entries(values).filter(([,value]) => value !== null && value !== undefined && value !== '').map(([key,value]) => `<div class="property"><dt>${escapeHtml(key.replaceAll('_',' '))}</dt><dd class="${String(value).length>44?'long':''}">${escapeHtml(displayValue(value))}</dd></div>`).join('') || '<span class="caption">No values recorded.</span>'; }
     function renderDetail(run) { state.selected = run.run_id; $('#emptyDetail').style.display = 'none'; const detail = $('#detail'); const config = run.applied_config_parsed || {}; const variables = { host:run.host, test:run.test, optimization:run.optimization, repeat:run.repeat_idx, started_at:dateTime(run.started_at), config_hash:run.config_hash, kernel:run.kernel, cpu_model:run.cpu_model, governor:run.governor, turbo:run.turbo, ambient_c:run.ambient_c == null ? null : `${number(run.ambient_c,1)} °C`, bench_start_temp_c:run.bench_start_temp_c == null ? null : `${number(run.bench_start_temp_c,1)} °C`, dropped_packets:run.dropped_packets, checksum_failures:run.checksum_failures, coverage:run.bench_sample_coverage == null ? null : `${number(run.bench_sample_coverage*100,1)}%` };
@@ -583,8 +643,8 @@ PAGE = r'''<!doctype html>
     let searchTimer;
     function refreshRuns() { Promise.all([loadRuns(),loadComparison()]).catch(showError); }
     function showError(error) { const message = error.message || 'Unexpected error.'; $('#runs').innerHTML = `<tr><td colspan="5"><div class="error">${escapeHtml(message)}</div></td></tr>`; $('#comparison').innerHTML = `<div class="error">${escapeHtml(message)}</div>`; }
-    async function start() { try { await Promise.all([loadOverview(),loadFilters(),loadCoverage()]); await Promise.all([loadRuns(),loadComparison()]); } catch(error) { showError(error); } }
-    ['#optimization','#test','#host','#status'].forEach(id=>$(id).addEventListener('change',refreshRuns)); ['#coverageHost','#coverageTest','#coverageStatus'].forEach(id=>$(id).addEventListener('change',renderCoverage)); $('#search').addEventListener('input',()=>{clearTimeout(searchTimer);searchTimer=setTimeout(refreshRuns,180)}); $('#clearFilters').addEventListener('click',()=>{['#optimization','#test','#host','#search'].forEach(id=>$(id).value='');$('#status').value='all';refreshRuns();}); $('#explorerTab').addEventListener('click',()=>setView('explorer')); $('#coverageTab').addEventListener('click',()=>setView('coverage')); $('#refresh').addEventListener('click',()=>start()); window.addEventListener('resize',()=>{if(state.selected){const run = null; /* canvas is redrawn when another run is selected */}}); start();
+    async function start() { try { await Promise.all([loadOverview(),loadFilters(),loadCoverage(),loadHostComparisons()]); await Promise.all([loadRuns(),loadComparison()]); } catch(error) { showError(error); } }
+    ['#optimization','#test','#host','#status'].forEach(id=>$(id).addEventListener('change',refreshRuns)); ['#coverageHost','#coverageTest','#coverageStatus'].forEach(id=>$(id).addEventListener('change',renderCoverage)); ['#hostCompareMetric','#hostCompareReference','#hostCompareTest','#hostCompareOptimization'].forEach(id=>$(id).addEventListener('change',renderHostComparisons)); $('#search').addEventListener('input',()=>{clearTimeout(searchTimer);searchTimer=setTimeout(refreshRuns,180)}); $('#clearFilters').addEventListener('click',()=>{['#optimization','#test','#host','#search'].forEach(id=>$(id).value='');$('#status').value='all';refreshRuns();}); $('#explorerTab').addEventListener('click',()=>setView('explorer')); $('#hostCompareTab').addEventListener('click',()=>setView('hostCompare')); $('#coverageTab').addEventListener('click',()=>setView('coverage')); $('#refresh').addEventListener('click',()=>start()); window.addEventListener('resize',()=>{if(state.selected){const run = null; /* canvas is redrawn when another run is selected */}}); start();
   </script>
 </body>
 </html>'''

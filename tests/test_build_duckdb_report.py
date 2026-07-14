@@ -122,6 +122,11 @@ class DuckDbReportTests(unittest.TestCase):
             False,
         )
         self.assertIn('id="rankChart"', report)
+        self.assertIn('data-view="hosts"', report)
+        self.assertIn('id="hostsView"', report)
+        self.assertIn('id="hostSpread"', report)
+        self.assertIn('id="hostDelta"', report)
+        self.assertIn("function renderHosts(", report)
         self.assertIn('id="scatter"', report)
         self.assertIn('id="heatmap"', report)
         self.assertIn('id="hostFilter"', report)
@@ -196,6 +201,19 @@ class DuckDbReportTests(unittest.TestCase):
         self.assertEqual(payload["meta"]["runCount"], 0)
         self.assertEqual(payload["tables"], [])
         self.assertIn("No tables found.", report)
+
+    def test_dashboard_host_comparison_returns_valid_measurement_spread(self):
+        from dashboard import DatabaseReader, PAGE
+
+        self.create_fixture()
+        rows = DatabaseReader(self.database).host_comparisons()
+        compile_rows = [row for row in rows if row["test"] == "compile" and row["optimization"] == "baseline"]
+        self.assertEqual({row["host"] for row in compile_rows}, {"alpha", "beta"})
+        self.assertEqual(next(row for row in compile_rows if row["host"] == "alpha")["average_energy_wh"], 10.0)
+        self.assertIn('/api/host-comparisons', PAGE)
+        self.assertIn('id="hostCompareView"', PAGE)
+        self.assertIn('id="hostCompareSpread"', PAGE)
+        self.assertIn('function renderHostComparisons(', PAGE)
 
 
 if __name__ == "__main__":

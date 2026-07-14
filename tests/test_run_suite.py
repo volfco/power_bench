@@ -15,6 +15,13 @@ class AmdSweepTests(unittest.TestCase):
         self.assertEqual(
             run_suite.select_experiments(None, False), run_suite.EXPERIMENTS)
 
+    def test_exclude_removes_matching_variants(self):
+        selected = run_suite.select_experiments(
+            None, False, exclude=["sched_ext"])
+        labels = [label for label, _, _ in selected]
+        self.assertIn("baseline", labels)
+        self.assertFalse(any("sched_ext" in label for label in labels))
+
     def test_amd_catalog_contains_supported_controls_only(self):
         labels = [label for label, _, _ in run_suite.AMD_EXPERIMENTS]
         self.assertIn("cpu_governor=conservative", labels)

@@ -247,12 +247,15 @@ def sh(cmd):
     return subprocess.run(cmd).returncode
 
 
-def select_experiments(only, skip_baseline, sweep="core"):
+def select_experiments(only, skip_baseline, sweep="core", exclude=None):
     """Select variants from one named hardware profile."""
     selected = list(SWEEP_EXPERIMENTS[sweep])
     if only:
         selected = [e for e in selected
                     if e[0] == "baseline" or any(p in e[0] for p in only)]
+    if exclude:
+        selected = [e for e in selected
+                    if not any(p in e[0] for p in exclude)]
     if skip_baseline:
         selected = [e for e in selected if e[0] != "baseline"]
     return selected
@@ -372,6 +375,8 @@ def main():
     ap.add_argument("--only", nargs="+", metavar="PATTERN",
                     help="run only variants whose label contains any of these substrings "
                          "(baseline is always included unless --skip-baseline)")
+    ap.add_argument("--exclude", nargs="+", metavar="PATTERN",
+                    help="skip variants whose label contains any of these substrings")
     ap.add_argument("--skip-baseline", action="store_true")
     ap.add_argument("--list", action="store_true", help="print the variant matrix and exit")
     ap.add_argument("--dry-run", action="store_true",
@@ -390,7 +395,7 @@ def main():
                         format="%(asctime)s %(levelname)-5s %(message)s",
                         datefmt="%Y-%m-%d %H:%M:%S")
 
-    selected = select_experiments(args.only, args.skip_baseline, args.sweep)
+    selected = select_experiments(args.only, args.skip_baseline, args.sweep, args.exclude)
     if not selected:
         print("No variants selected.", file=sys.stderr)
         sys.exit(1)
