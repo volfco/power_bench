@@ -216,6 +216,8 @@ class DuckDbReportTests(unittest.TestCase):
         self.assertIn('id="hostCompareAverage"', PAGE)
         self.assertIn('chart.js@4.5.1', PAGE)
         self.assertIn('function renderHostComparisons(', PAGE)
+        self.assertEqual(PAGE.count(":{y:null}"), 2)
+        self.assertNotIn("n:r.valid_count}:null", PAGE)
 
 
 if __name__ == "__main__":

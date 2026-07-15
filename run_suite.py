@@ -98,6 +98,7 @@ EXPERIMENTS = [
     ("epp=performance",   {"energy_perf_preference": "performance"}, "both"),
     ("epp=power",         {"energy_perf_preference": "power"}, "both"),
     ("epp=balance_power", {"energy_perf_preference": "balance_power"}, "both"),
+    ("max_perf_pct=95",   {"pstate_max_perf_pct": 95}, "both"),
     ("max_perf_pct=90",   {"pstate_max_perf_pct": 90}, "both"),
     ("max_perf_pct=80",   {"pstate_max_perf_pct": 80}, "both"),
     ("max_perf_pct=70",   {"pstate_max_perf_pct": 70}, "both"),
@@ -150,6 +151,10 @@ EXPERIMENTS = [
     # 14. Kernel boot params (REBOOT to apply/clear; apply_optimizations reconciles GRUB)
     ("kernel_params=pcie_aspm_force",      {"kernel_params": ["pcie_aspm=force"]}, "idle"),
     ("kernel_params=intel_pstate_passive", {"kernel_params": ["intel_pstate=passive"]}, "both"),
+    # Disable SMT to measure the throughput/energy tradeoff of running one hardware
+    # thread per core. Disable the NMI watchdog separately to test its idle interrupt cost.
+    ("kernel_params=nosmt",          {"kernel_params": ["nosmt"]}, "both"),
+    ("kernel_params=nmi_watchdog_0", {"kernel_params": ["nmi_watchdog=0"]}, "idle"),
     # Security-sensitive diagnostic cases. These are never part of the default core
     # selection; run only on an isolated benchmark host with an explicit --only value.
     ("kernel_params=mitigations_off", {"kernel_params": ["mitigations=off"]}, "both"),
@@ -187,6 +192,10 @@ AMD_EXPERIMENTS = [
         "cpu_governor": "performance",
         "pcie_aspm_policy": "powersave",
     }, "both"),
+
+    # Architecture-independent boot controls, each isolated as one OFAT variant.
+    ("kernel_params=nosmt",          {"kernel_params": ["nosmt"]}, "both"),
+    ("kernel_params=nmi_watchdog_0", {"kernel_params": ["nmi_watchdog=0"]}, "idle"),
 
     # Architecture-independent, security-sensitive boot-parameter diagnostic cases.
     # They remain opt-in through --only and are reconciled back to an empty managed

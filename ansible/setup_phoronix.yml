@@ -29,6 +29,7 @@
     pts_install_extended_suites: false
     pts_extended_suites:
       - pts/disk
+      - pts/cryptography
       - pts/database
       - pts/audio-encoding
       - pts/browsers

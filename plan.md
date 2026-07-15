@@ -61,6 +61,7 @@ the defconfig-only kernel build suite's seconds). Store the direction with each 
 | `local/power-bench-build-kernel-defconfig-1.0.0`          | lower-is-better (s)      | CPU bursty + I/O      | Local suite pins `pts/build-linux-kernel` to `defconfig` only            |
 | `pts/llama-cpp`                                           | higher-is-better (tok/s) | CPU/mem, sustained    | Optional; can require >100 GB download/environment space in current PTS  |
 | `pts/disk` (suite)                                        | mixed                    | I/O                   | Opt-in official suite; installed by `pts_install_extended_suites=true`   |
+| `pts/cryptography` (suite)                                | mixed                    | CPU / cryptography    | Opt-in official suite; installed by `pts_install_extended_suites=true`   |
 | `pts/database` (suite)                                    | mixed                    | Database / storage    | Opt-in official suite; large and service-heavy                            |
 | `pts/audio-encoding` (suite)                              | lower-is-better (time)   | Audio encoding        | Opt-in official suite                                                     |
 | `pts/browsers` (suite)                                    | mixed                    | Browser workloads     | Opt-in official suite; requires a suitable browser/display environment   |
