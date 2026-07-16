@@ -16,12 +16,12 @@
     # kernel-benchmark setup.
     pts_install_memory_suite: false
     pts_memory_suite: local/power-bench-memory-1.0.0
+    # Exclude profiles that cannot run reliably under the benchmark contract:
+    # stream-dynamic requires root, and pmbench 1.0.2 raises SIGFPE on node1.
     pts_memory_tests:
       - pts/mbw
       - pts/ramspeed
       - pts/stream
-      - pts/stream-dynamic
-      - pts/pmbench
       - pts/tinymembench
     # These official suites are deliberately opt-in: each expands to many profiles
     # and may download large assets or require workload-specific services/graphics.
@@ -103,6 +103,7 @@
           - ncurses-devel
         state: present
       when: ansible_os_family == "RedHat"
+
 
     - name: Check if Phoronix Test Suite is installed
       stat:
@@ -202,6 +203,7 @@
         regexp: '<AutoLoadModules>.*</AutoLoadModules>'
         replace: '<AutoLoadModules></AutoLoadModules>'
 
+
     - name: Ensure local PTS suite directory exists
       become: false
       file:
@@ -257,22 +259,65 @@
           {% for test in pts_memory_tests %}
             <Execute>
               <Test>{{ test }}</Test>
+          {% if test in ['pts/ramspeed', 'pts/stream'] %}
+              <Mode>BATCH</Mode>
+          {% elif test == 'pts/mbw' %}
+              <Arguments>-t0 1024</Arguments>
+          {% else %}
+              <Arguments></Arguments>
+          {% endif %}
               <Description>{{ test }} memory benchmark</Description>
             </Execute>
           {% endfor %}
           </PhoronixTestSuite>
       when: pts_install_memory_suite | bool
 
+    - name: Find requested PTS profile install directories
+      become: false
+      find:
+        paths: "{{ user_home.stdout }}/.phoronix-test-suite/installed-tests/{{ item | dirname }}"
+        patterns: "{{ (item | basename) ~ '-*' }}"
+        file_type: directory
+        recurse: false
+      loop: "{{ pts_preinstall_tests }}"
+      register: pts_profile_directories
+
+    # A previous failed compile leaves this marker behind. PTS 10.8 does not
+    # reliably remove it after a successful retry and will keep reporting the
+    # otherwise complete profile as uninstalled.
+    - name: Clear failed-install markers before retrying profiles
+      become: false
+      file:
+        path: "{{ item.path }}/install-failed.log"
+        state: absent
+      loop: "{{ pts_profile_directories.results | map(attribute='files') | flatten }}"
+      loop_control:
+        label: "{{ item.path }}"
+
     # Installing (download + compile) happens here, up front — never inside a measured
-    # run. batch-install re-running against an installed test is a cheap no-op; the
-    # creates glob skips it entirely once the versioned install dir exists.
+    # run. batch-install re-running against an installed test is a cheap no-op.
+    # Do not use an installed-tests directory as a creates guard: PTS can leave
+    # that directory behind after a failed compile, and it must then be retried.
     - name: Pre-install test profiles (downloads + compiles; can take a while)
       become: false
       command: phoronix-test-suite batch-install {{ item }}
-      args:
-        creates: "{{ user_home.stdout }}/.phoronix-test-suite/installed-tests/{{ item }}-*"
       environment:
         PTS_SILENT_MODE: "1"
+      loop: "{{ pts_preinstall_tests }}"
+
+    # PTS 10.8 can exit zero after a profile compile failure, so verify what it
+    # actually registered rather than trusting batch-install's return code.
+    - name: List installed PTS test profiles
+      become: false
+      command: phoronix-test-suite list-installed-tests
+      register: pts_installed_tests
+      changed_when: false
+
+    - name: Verify requested PTS test profiles are installed
+      assert:
+        that:
+          - (item ~ '-') in pts_installed_tests.stdout
+        fail_msg: "PTS profile {{ item }} did not install successfully"
       loop: "{{ pts_preinstall_tests }}"
 
     # A PTS suite owns several versioned profile directories, so it cannot use the
