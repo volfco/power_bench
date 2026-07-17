@@ -454,7 +454,14 @@ def host_comparison_payload(
                                 "max": max(values),
                                 "count": len(values),
                             }
-                            for key, values in sorted(subtests.items())
+                            for key, values in sorted(
+                                subtests.items(),
+                                key=lambda item: (
+                                    item[0][0],
+                                    item[0][1],
+                                    str(item[0][2]),
+                                ),
+                            )
                         ],
                     }
                 )
@@ -576,7 +583,8 @@ def host_comparison_html(comparisons: list[dict[str, Any]]) -> str:
                     (item["title"], item["scale"], item["higherIsBetter"])
                     for host in hosts
                     for item in host["subtests"]
-                }
+                },
+                key=lambda item: (item[0], item[1], str(item[2])),
             )
             subtest_rows = []
             for title, scale, direction in subtest_keys:

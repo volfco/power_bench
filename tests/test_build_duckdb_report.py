@@ -98,6 +98,19 @@ class DuckDbReportTests(unittest.TestCase):
                 "UPDATE runs SET kernel = host || '-kernel', cpu_model = host || '-cpu', "
                 "memory_bytes = CASE host WHEN 'alpha' THEN 17179869184 ELSE 34359738368 END"
             )
+            connection.executemany(
+                "INSERT INTO run_results VALUES (?, ?, ?)",
+                [
+                    (1, "C compiler", 100.0),
+                    (1, "Linker", 40.0),
+                    (2, "C compiler", 102.0),
+                    (2, "Linker", 42.0),
+                    (5, "C compiler", 200.0),
+                    (5, "Linker", 80.0),
+                    (6, "C compiler", 198.0),
+                    (6, "Linker", 78.0),
+                ],
+            )
 
     def embedded_payload(self, report):
         match = re.search(
@@ -124,10 +137,17 @@ class DuckDbReportTests(unittest.TestCase):
         self.assertIn('id="rankChart"', report)
         self.assertIn('data-view="hosts"', report)
         self.assertIn('id="hostsView"', report)
-        self.assertIn('id="hostAverageChart"', report)
-        self.assertIn('id="hostDeltaChart"', report)
-        self.assertIn('chart.js@4.5.1', report)
-        self.assertIn("function renderHosts(", report)
+        self.assertIn('id="hostComparisons"', report)
+        self.assertIn('data-host-configuration="eco"', report)
+        self.assertIn('class="built-chart"', report)
+        self.assertIn('data-host-metric="energy_wh"', report)
+        self.assertIn('class="test-result" data-host-test="compile"', report)
+        self.assertIn("C compiler", report)
+        self.assertIn("Linker", report)
+        self.assertIn("function renderHostComparisons(", report)
+        self.assertNotIn("chart.js", report.lower())
+        self.assertNotIn("<canvas", report.lower())
+        self.assertEqual(report.count('id="hostConfigs"'), 1)
         self.assertIn('id="scatter"', report)
         self.assertIn('id="heatmap"', report)
         self.assertIn('id="hostFilter"', report)
@@ -163,6 +183,12 @@ class DuckDbReportTests(unittest.TestCase):
         detail_payload = json.loads(detail_match.group(1))
         self.assertEqual(detail_payload["run"]["run_id"], 2)
         self.assertEqual([point["elapsed_s"] for point in detail_payload["readings"]], [0.0, 1.0])
+        self.assertEqual(
+            [result["title"] for result in detail_payload["results"]],
+            ["C compiler", "Linker"],
+        )
+        self.assertIn('id="results"', detail_report)
+        self.assertIn("function renderResults(", detail_report)
         self.assertIn("Power consumption over time", detail_report)
         self.assertNotIn("</script><script>alert(1)</script>", report)
         self.assertIn(r"\u003c/script\u003e", report)
