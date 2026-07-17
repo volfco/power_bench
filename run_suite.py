@@ -117,7 +117,6 @@ EXPERIMENTS = [
     ("io=none",  {"io_scheduler": "none"}, "load"),
     ("io=mq-deadline", {"io_scheduler": "mq-deadline"}, "load"),
     ("io=bfq",   {"io_scheduler": "bfq"}, "load"),
-    ("io=kyber", {"io_scheduler": "kyber"}, "load"),
 
     # 8. USB autosuspend
     ("usb_autosuspend", {"usb_autosuspend": True}, "idle"),

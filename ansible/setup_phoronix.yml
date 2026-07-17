@@ -35,6 +35,7 @@
       - pts/browsers
     pts_preinstall_tests: "{{ pts_tests + (pts_memory_tests if (pts_install_memory_suite | bool) else []) }}"
     pts_preinstall_suites: "{{ pts_extended_suites if (pts_install_extended_suites | bool) else [] }}"
+    pts_browser_display: ":99"
 
   tasks:
     - name: Update apt cache
@@ -78,6 +79,119 @@
           - software-properties-common
         state: present
       when: ansible_os_family == "Debian"
+
+    - name: Install browser benchmark dependencies
+      apt:
+        name:
+          - firefox
+          - "{{ 'libasound2t64' if (ansible_distribution == 'Ubuntu' and ansible_distribution_version is version('24.04', '>=')) else 'libasound2' }}"
+          - xauth
+          - xz-utils
+          - xvfb
+        state: present
+      when:
+        - ansible_os_family == "Debian"
+        - "'pts/browsers' in pts_preinstall_suites"
+
+    - name: Install Google Chrome for browser benchmarks
+      apt:
+        deb: https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
+        state: present
+      when:
+        - ansible_os_family == "Debian"
+        - ansible_architecture == "x86_64"
+        - "'pts/browsers' in pts_preinstall_suites"
+
+    - name: Download native Firefox for browser benchmarks
+      get_url:
+        url: https://download.mozilla.org/?product=firefox-latest&os=linux64&lang=en-US
+        dest: /tmp/power-bench-firefox.tar.xz
+        mode: '0644'
+      when:
+        - ansible_architecture == "x86_64"
+        - "'pts/browsers' in pts_preinstall_suites"
+
+    - name: Install native Firefox for browser benchmarks
+      unarchive:
+        src: /tmp/power-bench-firefox.tar.xz
+        dest: /opt
+        remote_src: true
+        creates: /opt/firefox/firefox
+      when:
+        - ansible_architecture == "x86_64"
+        - "'pts/browsers' in pts_preinstall_suites"
+
+    - name: Prefer native Firefox over the Ubuntu snap launcher
+      file:
+        src: /opt/firefox/firefox
+        dest: /usr/local/bin/firefox
+        state: link
+        force: true
+      when:
+        - ansible_architecture == "x86_64"
+        - "'pts/browsers' in pts_preinstall_suites"
+
+    - name: Read the installed Google Chrome version
+      command: google-chrome --product-version
+      register: pts_chrome_version
+      changed_when: false
+      when:
+        - ansible_architecture == "x86_64"
+        - "'pts/browsers' in pts_preinstall_suites"
+
+    - name: Download the matching ChromeDriver
+      get_url:
+        url: "https://storage.googleapis.com/chrome-for-testing-public/{{ pts_chrome_version.stdout }}/linux64/chromedriver-linux64.zip"
+        dest: "/tmp/power-bench-chromedriver-{{ pts_chrome_version.stdout }}.zip"
+        mode: '0644'
+      when:
+        - ansible_architecture == "x86_64"
+        - "'pts/browsers' in pts_preinstall_suites"
+
+    - name: Ensure the matching ChromeDriver directory exists
+      file:
+        path: "/opt/power-bench-chromedriver-{{ pts_chrome_version.stdout }}"
+        state: directory
+        mode: '0755'
+      when:
+        - ansible_architecture == "x86_64"
+        - "'pts/browsers' in pts_preinstall_suites"
+
+    - name: Install the matching ChromeDriver
+      unarchive:
+        src: "/tmp/power-bench-chromedriver-{{ pts_chrome_version.stdout }}.zip"
+        dest: "/opt/power-bench-chromedriver-{{ pts_chrome_version.stdout }}"
+        remote_src: true
+        creates: "/opt/power-bench-chromedriver-{{ pts_chrome_version.stdout }}/chromedriver-linux64/chromedriver"
+      when:
+        - ansible_architecture == "x86_64"
+        - "'pts/browsers' in pts_preinstall_suites"
+
+    - name: Configure the virtual display service
+      copy:
+        dest: /etc/systemd/system/power-bench-xvfb.service
+        mode: '0644'
+        content: |
+          [Unit]
+          Description=Virtual X display for Phoronix browser benchmarks
+          After=network.target
+
+          [Service]
+          ExecStart=/usr/bin/Xvfb {{ pts_browser_display }} -screen 0 1920x1080x24 -nolisten tcp -noreset
+          Restart=on-failure
+
+          [Install]
+          WantedBy=multi-user.target
+      register: pts_xvfb_unit
+      when: "'pts/browsers' in pts_preinstall_suites"
+
+    - name: Start the virtual display service
+      systemd:
+        name: power-bench-xvfb.service
+        daemon_reload: "{{ pts_xvfb_unit.changed }}"
+        enabled: true
+        state: started
+      when: "'pts/browsers' in pts_preinstall_suites"
 
     - name: Install dependencies (RedHat)
       yum:
@@ -144,6 +258,14 @@
         path: /usr/local/bin/phoronix-test-suite
         mode: '0755'
 
+    - name: Configure PTS to use the browser benchmark display
+      lineinfile:
+        path: /usr/local/bin/phoronix-test-suite
+        insertafter: '^#!/bin/sh$'
+        regexp: '^if \[ -z "\$\{DISPLAY:-\}" \].*power-bench-xvfb.*$'
+        line: 'if [ -z "${DISPLAY:-}" ] && systemctl is-active --quiet power-bench-xvfb.service; then export DISPLAY={{ pts_browser_display }}; fi'
+      when: "'pts/browsers' in pts_preinstall_suites"
+
     # PTS reads the connecting user's ~/.phoronix-test-suite/user-config.xml and
     # will block on prompts unless batch mode is configured. Write it as that user
     # (not root) so it applies to the account run_benchmark.py SSHes in as. Facts are
@@ -202,6 +324,31 @@
         path: "{{ user_home.stdout }}/.phoronix-test-suite/user-config.xml"
         regexp: '<AutoLoadModules>.*</AutoLoadModules>'
         replace: '<AutoLoadModules></AutoLoadModules>'
+
+    # The upstream Selenium profile uses pip --user, which is rejected by the
+    # externally-managed Python environment on current Debian/Ubuntu releases.
+    # Install into the system interpreter that PTS invokes. Selenium 4.2 retains
+    # the profile's legacy APIs and avoids newer Firefox transport regressions.
+    - name: Check the system Selenium version for browser benchmarks
+      command: python3 -c 'import selenium; print(selenium.__version__)'
+      environment:
+        PYTHONNOUSERSITE: "1"
+      register: pts_selenium_version
+      changed_when: false
+      failed_when: false
+      when: "'pts/browsers' in pts_preinstall_suites"
+
+    - name: Install Python modules for browser benchmarks
+      pip:
+        name:
+          - selenium==4.2.0
+        executable: pip3
+        extra_args: --ignore-installed
+      environment:
+        PIP_BREAK_SYSTEM_PACKAGES: "1"
+      when:
+        - "'pts/browsers' in pts_preinstall_suites"
+        - pts_selenium_version.stdout != '4.2.0'
 
 
     - name: Ensure local PTS suite directory exists
@@ -329,7 +476,86 @@
       command: phoronix-test-suite batch-install {{ item }}
       environment:
         PTS_SILENT_MODE: "1"
+        DISPLAY: "{{ pts_browser_display if item == 'pts/browsers' else (ansible_env.DISPLAY | default('')) }}"
       loop: "{{ pts_preinstall_suites }}"
+
+    - name: Find installed Selenium profile directories
+      become: false
+      find:
+        paths: "{{ user_home.stdout }}/.phoronix-test-suite/installed-tests/system"
+        patterns: selenium-*
+        file_type: directory
+        recurse: false
+      register: pts_selenium_directories
+      when:
+        - ansible_architecture == "x86_64"
+        - "'pts/browsers' in pts_preinstall_suites"
+
+    - name: Find Selenium benchmark scripts
+      become: false
+      find:
+        paths: "{{ pts_selenium_directories.files | map(attribute='path') | list }}"
+        patterns: selenium-run-*.py
+        file_type: file
+        recurse: false
+      register: pts_selenium_scripts
+      when:
+        - ansible_architecture == "x86_64"
+        - "'pts/browsers' in pts_preinstall_suites"
+
+    - name: Update Selenium ID lookups for current Selenium releases
+      become: false
+      replace:
+        path: "{{ item.path }}"
+        regexp: '\.find_element_by_id\(([^\n]*)\)'
+        replace: '.find_element(By.ID, \1)'
+      loop: "{{ pts_selenium_scripts.files }}"
+      loop_control:
+        label: "{{ item.path }}"
+      when:
+        - ansible_architecture == "x86_64"
+        - "'pts/browsers' in pts_preinstall_suites"
+
+    - name: Update Selenium link-text lookups for current Selenium releases
+      become: false
+      replace:
+        path: "{{ item.path }}"
+        regexp: '\.find_element_by_link_text\(([^\n]*)\)'
+        replace: '.find_element(By.LINK_TEXT, \1)'
+      loop: "{{ pts_selenium_scripts.files }}"
+      loop_control:
+        label: "{{ item.path }}"
+      when:
+        - ansible_architecture == "x86_64"
+        - "'pts/browsers' in pts_preinstall_suites"
+
+    - name: Use a protocol-compatible browser window size
+      become: false
+      replace:
+        path: "{{ item.path }}"
+        regexp: 'driver\.maximize_window\(\)'
+        replace: 'driver.set_window_size(1920, 1080)'
+      loop: "{{ pts_selenium_scripts.files }}"
+      loop_control:
+        label: "{{ item.path }}"
+      when:
+        - ansible_architecture == "x86_64"
+        - "'pts/browsers' in pts_preinstall_suites"
+
+    - name: Replace the profile's bundled ChromeDriver with the matching version
+      copy:
+        src: "/opt/power-bench-chromedriver-{{ pts_chrome_version.stdout }}/chromedriver-linux64/chromedriver"
+        dest: "{{ item.path }}/chromedriver"
+        remote_src: true
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+        mode: '0755'
+      loop: "{{ pts_selenium_directories.files }}"
+      loop_control:
+        label: "{{ item.path }}"
+      when:
+        - ansible_architecture == "x86_64"
+        - "'pts/browsers' in pts_preinstall_suites"
 
     - name: Display installation summary
       debug:

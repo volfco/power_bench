@@ -69,7 +69,7 @@ def main(argv: list[str] | None = None) -> int:
         sys.executable,
         str(ROOT / "run_suite.py"),
         args.host,
-        "--repeats", "3",
+        "--repeats", "2",
         "--skip-existing",
         *sweep_args,
         *suite_args,
