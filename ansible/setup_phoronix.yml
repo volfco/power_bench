@@ -33,7 +33,12 @@
       - pts/database
       - pts/audio-encoding
       - pts/browsers
-    pts_preinstall_tests: "{{ pts_tests + (pts_memory_tests if (pts_install_memory_suite | bool) else []) }}"
+    # PTS 10.8 can leave a suite dependency uninstalled while batch-install exits
+    # successfully. Make the browsers suite's sole profile an explicit, verified
+    # pre-install so measured runs never fail on a missing system/selenium profile.
+    pts_browser_tests:
+      - system/selenium
+    pts_preinstall_tests: "{{ pts_tests + (pts_memory_tests if (pts_install_memory_suite | bool) else []) + (pts_browser_tests if ('pts/browsers' in pts_extended_suites and (pts_install_extended_suites | bool)) else []) }}"
     pts_preinstall_suites: "{{ pts_extended_suites if (pts_install_extended_suites | bool) else [] }}"
     pts_browser_display: ":99"
 
