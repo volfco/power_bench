@@ -256,6 +256,39 @@ def sh(cmd):
     return subprocess.run(cmd).returncode
 
 
+def probe_governor_support(host, user=None, key=None):
+    """Return True if /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor exists
+    and is writable, False otherwise."""
+    cmd = (
+        "test -w /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor"
+        " && echo OK || echo FAIL"
+    )
+    args = ["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no",
+            "-o", "ConnectTimeout=10"]
+    if key:
+        args += ["-i", key]
+    target = f"{user}@{host}" if user else host
+    args += [target, cmd]
+    try:
+        r = subprocess.run(args, capture_output=True, text=True, timeout=15)
+        return r.returncode == 0 and "OK" in r.stdout
+    except (subprocess.SubprocessError, OSError):
+        return False
+
+
+def filter_out_governor_experiments(selected):
+    """Remove experiments that set cpu_governor when the host lacks scaling_governor.
+
+    Also removes stack experiments that include cpu_governor in their overrides,
+    since those would fail the apply step and trigger an unnecessary reboot.
+    """
+    return [
+        (label, overrides, target)
+        for label, overrides, target in selected
+        if "cpu_governor" not in overrides
+    ]
+
+
 def select_experiments(only, skip_baseline, sweep="core", exclude=None):
     """Select variants from one named hardware profile."""
     selected = list(SWEEP_EXPERIMENTS[sweep])
@@ -431,6 +464,29 @@ def main():
     if not selected:
         print("No variants selected.", file=sys.stderr)
         raise SystemExit(1)
+
+    if not args.dry_run and not args.list:
+        if not probe_governor_support(
+            inventory_host.address,
+            inventory_host.user,
+            inventory_host.private_key,
+        ):
+            before = len(selected)
+            selected = filter_out_governor_experiments(selected)
+            dropped = before - len(selected)
+            if dropped:
+                print(
+                    f"Host {args.host} lacks scaling_governor — "
+                    f"skipping {dropped} cpu_governor experiment(s) "
+                    f"(no reboot needed).",
+                    flush=True,
+                )
+            if not selected:
+                print(
+                    "No experiments remain after filtering for governor support.",
+                    file=sys.stderr,
+                )
+                raise SystemExit(1)
 
     if args.list:
         print_matrix(selected)
