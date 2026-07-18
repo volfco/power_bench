@@ -14,6 +14,7 @@ DEVICE_NAME_PREFIXES = ("UD18", "AT24", "J7", "DL24")
 
 def is_atorch_device(device) -> bool:
     """Return whether a BLE device name matches a supported Atorch family."""
+    print(device.name)
     return bool(
         device.name
         and any(device.name.upper().startswith(prefix) for prefix in DEVICE_NAME_PREFIXES)
