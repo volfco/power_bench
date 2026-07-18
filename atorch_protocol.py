@@ -59,12 +59,13 @@ def _uint16_be(data: bytes, offset: int) -> int:
 
 
 def verify_checksum(packet: bytes) -> bool:
-    """Checksum = (sum of bytes from offset 2 to -1) XOR 0x44."""
+    """Accept the legacy Atorch checksum and the additive S1BWT SPP variant."""
     if len(packet) < 4:
         return False
     payload = packet[2:-1]
-    checksum = (sum(payload) & 0xFF) ^ 0x44
-    return checksum == packet[-1]
+    legacy_checksum = (sum(payload) & 0xFF) ^ 0x44
+    spp_checksum = (sum(payload) + 0x57) & 0xFF
+    return packet[-1] in (legacy_checksum, spp_checksum)
 
 
 def build_command(device_type: DeviceType, command: int, value: int = 0) -> bytes:

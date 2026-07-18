@@ -9,6 +9,9 @@ Usage:
     python run_benchmark.py node2 --idle-only --optimization baseline \
         --inventory ansible/hosts --mac 45:AF:4E:55:56:06 --checksum-policy warn
 
+    --mac accepts either a BLE or Classic SPP address. Without --mac, discovery
+    prefers BLE and falls back to an Atorch SPP device when no BLE meter is found.
+
 Each run moves through the phases settle -> idle -> bench -> cooldown. Post-boot
 settling samples are tagged 'settle'; the window flips to 'idle' only once power is
 stable (rolling stdev below --idle-stable-w), so idle averages never include a
@@ -753,7 +756,12 @@ def main():
     parser.add_argument("--cool-to", type=float, default=None)
     parser.add_argument("--ambient", type=float, default=None)
     parser.add_argument("--config-hash", dest="config_hash", default=None)
-    parser.add_argument("--mac", "-m", default=None)
+    parser.add_argument(
+        "--mac",
+        "-m",
+        default=None,
+        help="BLE or Classic SPP meter MAC (BLE-first auto-discovery if omitted)",
+    )
     parser.add_argument("--timeout", "-t", type=float, default=10.0)
     parser.add_argument(
         "--checksum-policy",

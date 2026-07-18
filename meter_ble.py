@@ -6,7 +6,7 @@ import time
 
 from bleak import BleakClient, BleakScanner
 
-from discover_atorch_spp import discover_atorch_spp_devices
+from discover_atorch_spp import discover_atorch_spp_devices, is_atorch_spp_name
 from meter_spp import SppMeterConnection
 
 logger = logging.getLogger(__name__)
@@ -20,6 +20,7 @@ def is_atorch_device(device) -> bool:
     print(device.name, device)
     return bool(
         device.name
+        and not is_atorch_spp_name(device.name)
         and any(device.name.upper().startswith(prefix) for prefix in DEVICE_NAME_PREFIXES)
     )
 
@@ -62,7 +63,7 @@ class MeterConnection:
 
     async def connect(self):
         device = await self._find_ble_device()
-        if device is not None:
+        if device is not None and not is_atorch_spp_name(device.name or ""):
             logger.info("Found BLE meter %s (%s)", device.name, device.address)
             self._client = BleakClient(device, timeout=self.timeout)
             await self._client.connect()
