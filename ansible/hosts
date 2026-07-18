@@ -1,5 +1,5 @@
 [benchmarks]
 # target ansible_host=<IP_ADDRESS> ansible_user=<USER>
-node1 ansible_host=192.168.1.58 ansible_user=metrolla ansible_password=metrolla
-#node2 ansible_host=192.168.1.76 ansible_user=metrolla ansible_password=metrolla power_bench_sweep_profile=amd
+#node1 ansible_host=192.168.1.58 ansible_user=metrolla ansible_password=metrolla
+node2 ansible_host=192.168.1.76 ansible_user=metrolla ansible_password=metrolla power_bench_sweep_profile=amd
 #node3 ansible_host=192.168.1.94 ansible_user=metrolla ansible_password=metrolla power_bench_sweep_profile=amd
