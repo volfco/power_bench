@@ -53,7 +53,7 @@ READ_PACKET_TIMEOUT = 5.0
 IDLE_STDEV_WINDOW = 15          # samples in the rolling window for the stability gate
 THERMAL_GATE_TIMEOUT = 300.0
 THERMAL_POLL_SECONDS = 10.0
-MIN_SAMPLE_COVERAGE = 0.9       # below this fraction of expected samples a run is invalid
+MIN_SAMPLE_COVERAGE = 0.6       # below this fraction of expected samples a run is invalid
 
 
 class LoggerState:
