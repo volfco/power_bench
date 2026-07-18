@@ -1,13 +1,13 @@
 """Run a Phoronix benchmark on a remote host with synchronized power logging.
 
 Usage:
-    python run_benchmark.py <host> <test> [options]
-    python run_benchmark.py 192.168.1.58 local/power-bench-build-kernel-defconfig-1.0.0 \
+    python run_benchmark.py <inventory-host> <test> [options]
+    python run_benchmark.py node2 local/power-bench-build-kernel-defconfig-1.0.0 \
         --db benchmarks/power_meter.duckdb \
-        --optimization baseline --repeat 1 --user metrolla \
+        --optimization baseline --repeat 1 --inventory ansible/hosts \
         --mac 45:AF:4E:55:56:06 --checksum-policy warn --reboot
-    python run_benchmark.py 192.168.1.58 --idle-only --optimization baseline \
-        --user metrolla --mac 45:AF:4E:55:56:06 --checksum-policy warn
+    python run_benchmark.py node2 --idle-only --optimization baseline \
+        --inventory ansible/hosts --mac 45:AF:4E:55:56:06 --checksum-policy warn
 
 Each run moves through the phases settle -> idle -> bench -> cooldown. Post-boot
 settling samples are tagged 'settle'; the window flips to 'idle' only once power is
@@ -33,8 +33,10 @@ import statistics
 import subprocess
 import sys
 import time
+import uuid
 from collections import deque
 
+from ansible_inventory import InventoryHostError, resolve_inventory_host
 from database import Database
 from meter_ble import MeterConnection
 from atorch_protocol import parse_report, verify_checksum, MAGIC_HEADER, MessageType
@@ -65,6 +67,24 @@ class LoggerState:
 
     def latest_energy(self):
         return self.latest.energy if self.latest is not None else None
+
+class RunBuffer:
+    """In-memory representation of one run, persisted only after completion."""
+
+    def __init__(self, **fields):
+        self.fields = fields
+        self.readings = []
+        self.results = []
+
+    def update_run(self, _run_id=None, **fields):
+        self.fields.update(fields)
+
+    def insert(self, reading, run_id=None, phase=None):
+        self.readings.append((reading, phase))
+
+    def phase_readings(self, phase):
+        return [reading for reading, reading_phase in self.readings
+                if reading_phase == phase]
 
 
 def ssh_command(host: str, cmd: str, user: str | None = None, key: str | None = None) -> list[str]:
@@ -253,7 +273,7 @@ def archive_pts_xml(db_path: str, result_name: str, xml_text: str):
     logger.info("Archived PTS result XML to %s", path)
 
 
-async def power_logger(db: Database, run_id: int, interval: float,
+async def power_logger(run: RunBuffer, interval: float,
                        conn: MeterConnection, state: LoggerState, stop_event: asyncio.Event):
     seq = 0
     last_log = 0.0
@@ -294,7 +314,7 @@ async def power_logger(db: Database, run_id: int, interval: float,
         if not state.first_reading.is_set():
             state.first_reading.set()
 
-        db.insert(reading, run_id=run_id, phase=state.phase)
+        run.insert(reading, phase=state.phase)
         state.valid += 1
         seq += 1
         logger.info(
@@ -325,36 +345,45 @@ def _rolling_stdev(values) -> float | None:
 
 
 async def wait_for_idle_stability(state: LoggerState, args: argparse.Namespace):
-    """Hold the 'settle' phase until power is stable (or --idle-timeout expires).
-
-    A freshly booted host keeps running systemd jobs, journal flushes etc. for a
-    while — averaging that into idle would corrupt the before/after comparison.
-    """
-    logger.info("Settling for %ss minimum (gate: stdev of last %d samples < %.2f W)...",
-                args.settle, IDLE_STDEV_WINDOW, args.idle_stable_w)
+    """Hold the settle phase until power is stable or the timeout expires."""
+    logger.info(
+        "Settling for %ss minimum (gate: stdev of last %d samples < %.2f W)...",
+        args.settle,
+        IDLE_STDEV_WINDOW,
+        args.idle_stable_w,
+    )
     await asyncio.sleep(args.settle)
     deadline = time.time() + args.idle_timeout
     while True:
         window = list(state.recent_power)
-        sd = _rolling_stdev(window)
-        if len(window) >= IDLE_STDEV_WINDOW and sd is not None and sd < args.idle_stable_w:
-            logger.info("Idle stable (stdev %.3f W)", sd)
+        stdev = _rolling_stdev(window)
+        if (
+            len(window) >= IDLE_STDEV_WINDOW
+            and stdev is not None
+            and stdev < args.idle_stable_w
+        ):
+            logger.info("Idle stable (stdev %.3f W)", stdev)
             return
         if time.time() > deadline:
-            logger.warning("Idle stability not reached within %ss (stdev %s); proceeding anyway",
-                           args.idle_timeout, "n/a" if sd is None else f"{sd:.3f} W")
+            logger.warning(
+                "Idle stability not reached within %ss (stdev %s); proceeding anyway",
+                args.idle_timeout,
+                "n/a" if stdev is None else f"{stdev:.3f} W",
+            )
             return
         await asyncio.sleep(2.0)
 
 
 async def thermal_gate(args: argparse.Namespace) -> float | None:
-    """Read (and, with --cool-to, wait for) the host CPU temperature before the bench.
-
-    Replaces the warm-up-discard convention: repeats are comparable because they
-    start at a known temperature, recorded in ``runs.bench_start_temp_c``.
-    """
+    """Read and optionally gate on CPU temperature before the benchmark."""
     loop = asyncio.get_running_loop()
-    temp = await loop.run_in_executor(None, read_host_cpu_temp, args.host, args.user, args.key)
+    temp = await loop.run_in_executor(
+        None,
+        read_host_cpu_temp,
+        args.connection_host,
+        args.connection_user,
+        args.connection_key,
+    )
     if temp is None:
         logger.warning("Thermal gate: could not read host CPU temperature")
         return None
@@ -362,62 +391,80 @@ async def thermal_gate(args: argparse.Namespace) -> float | None:
         deadline = time.time() + THERMAL_GATE_TIMEOUT
         while temp is not None and temp > args.cool_to:
             if time.time() > deadline:
-                logger.warning("Thermal gate: still %.1fC > %.1fC after %.0fs; proceeding",
-                               temp, args.cool_to, THERMAL_GATE_TIMEOUT)
+                logger.warning(
+                    "Thermal gate: still %.1fC > %.1fC after %.0fs; proceeding",
+                    temp,
+                    args.cool_to,
+                    THERMAL_GATE_TIMEOUT,
+                )
                 break
-            logger.info("Thermal gate: %.1fC > %.1fC, waiting...", temp, args.cool_to)
+            logger.info(
+                "Thermal gate: %.1fC > %.1fC, waiting...",
+                temp,
+                args.cool_to,
+            )
             await asyncio.sleep(THERMAL_POLL_SECONDS)
-            temp = await loop.run_in_executor(None, read_host_cpu_temp,
-                                              args.host, args.user, args.key)
+            temp = await loop.run_in_executor(
+                None,
+                read_host_cpu_temp,
+                args.connection_host,
+                args.connection_user,
+                args.connection_key,
+            )
         if temp is not None and temp <= args.cool_to:
-            logger.info("Thermal gate: %.1fC <= %.1fC, proceeding", temp, args.cool_to)
+            logger.info(
+                "Thermal gate: %.1fC <= %.1fC, proceeding",
+                temp,
+                args.cool_to,
+            )
     return temp
 
 
-def finalize_bench_metrics(db: Database, run_id: int, bench_start: float,
-                           bench_end: float, interval: float):
-    """Integrate bench-phase energy from the samples and record sampling coverage.
-
-    The meter's energy counter only ticks in 10 Wh steps — far too coarse for a
-    single run — so the trapezoid over the 1 Hz true-power samples is the primary
-    energy-to-complete figure (see plan.md). Coverage below MIN_SAMPLE_COVERAGE
-    means silent BLE gaps or a stalled meter: the run must be re-run, not averaged.
-    """
-    rows = db.query(
-        "SELECT timestamp, power_w FROM readings "
-        "WHERE run_id = ? AND phase = 'bench' ORDER BY timestamp",
-        [run_id],
+def finalize_bench_metrics(
+    run: RunBuffer, bench_start: float, bench_end: float, interval: float
+):
+    """Calculate integrated energy and coverage from buffered bench samples."""
+    rows = sorted(
+        ((reading.timestamp, reading.power) for reading in run.phase_readings("bench")),
+        key=lambda row: row[0],
     )
     energy_wh = None
     if len(rows) >= 2:
-        energy_wh = sum((p0 + p1) / 2.0 * (t1 - t0)
-                        for (t0, p0), (t1, p1) in zip(rows, rows[1:])) / 3600.0
+        energy_wh = sum(
+            (p0 + p1) / 2.0 * (t1 - t0)
+            for (t0, p0), (t1, p1) in zip(rows, rows[1:])
+        ) / 3600.0
     duration = bench_end - bench_start
     coverage = len(rows) / (duration / interval) if duration > 0 else None
-    db.update_run(run_id, energy_wh_integrated=energy_wh, bench_sample_coverage=coverage)
+    run.update_run(
+        energy_wh_integrated=energy_wh,
+        bench_sample_coverage=coverage,
+    )
     if coverage is not None and coverage < MIN_SAMPLE_COVERAGE:
-        logger.warning("Bench sample coverage %.0f%% < %.0f%% — run #%d is INVALID "
-                       "(silent BLE gap / stale meter?); re-run it",
-                       coverage * 100, MIN_SAMPLE_COVERAGE * 100, run_id)
+        logger.warning(
+            "Bench sample coverage %.0f%% < %.0f%% — completed run is INVALID",
+            coverage * 100,
+            MIN_SAMPLE_COVERAGE * 100,
+        )
 
 
-async def run_async(args: argparse.Namespace, db: Database, run_id: int) -> int:
+async def run_async(args: argparse.Namespace, run: RunBuffer) -> int:
     state = LoggerState()
     state.checksum_policy = args.checksum_policy
     stop_event = asyncio.Event()
     conn = MeterConnection(mac_address=args.mac, timeout=args.timeout)
 
     logger.info("Connecting to power meter...")
-    await conn.connect()  # raises on failure -> we fail before launching the benchmark
-
+    await conn.connect()
     logger_task = asyncio.create_task(
-        power_logger(db, run_id, args.interval, conn, state, stop_event)
+        power_logger(run, args.interval, conn, state, stop_event)
     )
     proc = None
     try:
-        # Fail fast: don't run a whole benchmark with no power data.
         try:
-            await asyncio.wait_for(state.first_reading.wait(), METER_FIRST_READING_TIMEOUT)
+            await asyncio.wait_for(
+                state.first_reading.wait(), METER_FIRST_READING_TIMEOUT
+            )
         except asyncio.TimeoutError:
             raise RuntimeError(
                 f"No valid meter reading within {METER_FIRST_READING_TIMEOUT:.0f}s; "
@@ -425,18 +472,17 @@ async def run_async(args: argparse.Namespace, db: Database, run_id: int) -> int:
             )
 
         if args.ambient is None and state.latest is not None:
-            # Meter-internal temperature — an ambient proxy, better than NULL.
-            db.update_run(run_id, ambient_c=state.latest.temperature)
-            logger.info("Ambient auto-filled from meter temperature: %.1f C",
-                        state.latest.temperature)
+            run.update_run(ambient_c=state.latest.temperature)
+            logger.info(
+                "Ambient auto-filled from meter temperature: %.1f C",
+                state.latest.temperature,
+            )
 
-        # --- SETTLE phase: post-boot activity must die down before idle counts ---
         state.phase = "settle"
         await wait_for_idle_stability(state, args)
 
-        # --- IDLE phase (stable window only) ---
         state.phase = "idle"
-        db.update_run(run_id, idle_start=time.time())
+        run.update_run(idle_start=time.time())
         idle_hold = args.idle_duration if args.idle_only else args.settle
         logger.info("Idle window for %ss...", idle_hold)
         await asyncio.sleep(idle_hold)
@@ -445,24 +491,32 @@ async def run_async(args: argparse.Namespace, db: Database, run_id: int) -> int:
             logger.info("Idle-only run complete")
             return 0
 
-        # --- BENCH phase (thermal-gated) ---
         temp_c = await thermal_gate(args)
         if temp_c is not None:
-            db.update_run(run_id, bench_start_temp_c=temp_c)
+            run.update_run(bench_start_temp_c=temp_c)
         state.phase = "bench"
         bench_start = time.time()
-        db.update_run(run_id, bench_start=bench_start,
-                      energy_wh_bench_start=state.latest_energy())
+        run.update_run(
+            bench_start=bench_start,
+            energy_wh_bench_start=state.latest_energy(),
+        )
         logger.info("Launching benchmark '%s' on %s ...", args.test, args.host)
-        proc = launch_benchmark(args.host, args.test, args.result_name, args.user, args.key)
+        proc = launch_benchmark(
+            args.connection_host,
+            args.test,
+            args.result_name,
+            args.connection_user,
+            args.connection_key,
+        )
         await stream_remote_output(proc)
         bench_end = time.time()
-        db.update_run(run_id, bench_end=bench_end,
-                      energy_wh_bench_end=state.latest_energy())
+        run.update_run(
+            bench_end=bench_end,
+            energy_wh_bench_end=state.latest_energy(),
+        )
         logger.info("Benchmark finished (exit %d)", proc.returncode)
-        finalize_bench_metrics(db, run_id, bench_start, bench_end, args.interval)
+        finalize_bench_metrics(run, bench_start, bench_end, args.interval)
 
-        # --- COOLDOWN phase ---
         state.phase = "cooldown"
         logger.info("Cooldown for %ss...", args.settle)
         await asyncio.sleep(args.settle)
@@ -470,8 +524,7 @@ async def run_async(args: argparse.Namespace, db: Database, run_id: int) -> int:
         stop_event.set()
         await logger_task
         await conn.disconnect()
-        db.update_run(
-            run_id,
+        run.update_run(
             dropped_packets=state.dropped,
             checksum_failures=state.checksum_failures,
         )
@@ -479,55 +532,66 @@ async def run_async(args: argparse.Namespace, db: Database, run_id: int) -> int:
     return proc.returncode if proc is not None else 0
 
 
-def _fmt(x):
-    return "n/a" if x is None else "%.3f" % x
+def _fmt(value):
+    return "n/a" if value is None else "%.3f" % value
 
 
-def print_summary(db: Database, run_id: int):
-    idle = db.query(
-        "SELECT AVG(power_w), COUNT(*) FROM readings WHERE run_id = ? AND phase = 'idle'",
-        [run_id],
-    )[0]
-    bench = db.query(
-        "SELECT AVG(power_w), MAX(power_w), COUNT(*) FROM readings WHERE run_id = ? AND phase = 'bench'",
-        [run_id],
-    )[0]
-    (e_start, e_end, e_int, b_start, b_end, temp_c, coverage,
-     score, unit, hib, dropped, checksum_failures) = db.query(
-        """
-        SELECT energy_wh_bench_start, energy_wh_bench_end, energy_wh_integrated,
-               bench_start, bench_end, bench_start_temp_c, bench_sample_coverage,
-               bench_score, bench_unit, higher_is_better, dropped_packets,
-               checksum_failures
-        FROM runs WHERE run_id = ?
-        """,
-        [run_id],
-    )[0]
+def print_summary(run: RunBuffer, run_id: int):
+    idle = run.phase_readings("idle")
+    bench = run.phase_readings("bench")
+    fields = run.fields
 
-    counter_wh = (e_end - e_start) if (e_start is not None and e_end is not None) else None
-    duration_s = (b_end - b_start) if (b_start is not None and b_end is not None) else None
+    idle_avg = statistics.fmean(reading.power for reading in idle) if idle else None
+    bench_avg = statistics.fmean(reading.power for reading in bench) if bench else None
+    bench_peak = max((reading.power for reading in bench), default=None)
+    e_start = fields.get("energy_wh_bench_start")
+    e_end = fields.get("energy_wh_bench_end")
+    e_int = fields.get("energy_wh_integrated")
+    b_start = fields.get("bench_start")
+    b_end = fields.get("bench_end")
+    temp_c = fields.get("bench_start_temp_c")
+    coverage = fields.get("bench_sample_coverage")
+    score = fields.get("bench_score")
+    unit = fields.get("bench_unit")
+    higher_is_better = fields.get("higher_is_better")
+    dropped = fields.get("dropped_packets")
+    checksum_failures = fields.get("checksum_failures")
+
+    counter_wh = (
+        e_end - e_start if e_start is not None and e_end is not None else None
+    )
+    duration_s = (
+        b_end - b_start if b_start is not None and b_end is not None else None
+    )
 
     lines = [f"=== Run #{run_id} Summary ==="]
-    lines.append(f"  Idle power : {_fmt(idle[0])} W  ({idle[1] or 0} samples)")
-    if bench[2]:
+    lines.append(f"  Idle power : {_fmt(idle_avg)} W  ({len(idle)} samples)")
+    if bench:
         lines.append(
-            f"  Load power : {_fmt(bench[0])} W avg, {_fmt(bench[1])} W peak  ({bench[2]} samples)"
+            f"  Load power : {_fmt(bench_avg)} W avg, {_fmt(bench_peak)} W peak  "
+            f"({len(bench)} samples)"
         )
     if duration_s is not None:
         lines.append(f"  Bench time : {duration_s:.1f} s")
     if temp_c is not None:
         lines.append(f"  Start temp : {temp_c:.1f} C (CPU, thermal gate)")
     if e_int is not None:
-        lines.append(f"  Energy     : {e_int:.3f} Wh to complete (integrated; "
-                     f"counter delta {_fmt(counter_wh)} Wh @ 10 Wh/tick)")
+        lines.append(
+            f"  Energy     : {e_int:.3f} Wh to complete (integrated; "
+            f"counter delta {_fmt(counter_wh)} Wh @ 10 Wh/tick)"
+        )
     if coverage is not None:
         flag = "" if coverage >= MIN_SAMPLE_COVERAGE else "  << INVALID, re-run"
-        lines.append(f"  Coverage   : {coverage * 100:.0f}% of expected bench samples{flag}")
+        lines.append(
+            f"  Coverage   : {coverage * 100:.0f}% of expected bench samples{flag}"
+        )
     if score is not None:
-        direction = "higher=better" if hib else "lower=better"
+        direction = "higher=better" if higher_is_better else "lower=better"
         lines.append(f"  Score      : {score:.4f} {unit or ''} ({direction})")
-        if hib and e_int:
-            lines.append(f"  Perf/Wh    : {score / e_int:.4f} {unit or 'units'} per Wh")
+        if higher_is_better and e_int:
+            lines.append(
+                f"  Perf/Wh    : {score / e_int:.4f} {unit or 'units'} per Wh"
+            )
     lines.append(f"  Dropped    : {dropped or 0} packets")
     if checksum_failures:
         lines.append(f"  Checksums  : {checksum_failures} failed frame checks")
@@ -535,11 +599,21 @@ def print_summary(db: Database, run_id: int):
 
 
 def run(args: argparse.Namespace):
-    db = Database(args.db)
-    db.open()
+    info = gather_host_info(
+        args.connection_host,
+        args.connection_user,
+        args.connection_key,
+    )
+    args.result_name = None
+    if not args.idle_only:
+        safe_host = "".join(
+            character
+            for character in args.host
+            if character.isalnum() or character in "-_"
+        )
+        args.result_name = f"power_bench_{safe_host}_{uuid.uuid4().hex[:12]}"
 
-    info = gather_host_info(args.host, args.user, args.key)
-    run_id = db.create_run(
+    run_buffer = RunBuffer(
         host=args.host,
         test=args.test,
         optimization=args.optimization,
@@ -547,119 +621,165 @@ def run(args: argparse.Namespace):
         config_hash=args.config_hash,
         ambient_c=args.ambient,
         applied_config=json.dumps(info),
-        **info,  # non-column keys (epp, aspm_policy, ...) are filtered by create_run
+        result_name=args.result_name,
+        **info,
     )
-    args.result_name = None
-    if not args.idle_only:
-        args.result_name = f"power_bench_run{run_id}"
-        db.update_run(run_id, result_name=args.result_name)
     logger.info(
-        "Run #%d  test=%s  optimization=%s  repeat=%d",
-        run_id, args.test, args.optimization, args.repeat,
+        "Starting test=%s optimization=%s repeat=%d on inventory host %s",
+        args.test,
+        args.optimization,
+        args.repeat,
+        args.host,
     )
 
     try:
-        rc = asyncio.run(run_async(args, db, run_id))
+        rc = asyncio.run(run_async(args, run_buffer))
     except Exception as exc:
-        logger.error("Run aborted: %s", exc)
-        db.close()
-        # Even a failed run must not leak its knobs into the next iteration.
+        logger.error(
+            "Run aborted before completion; nothing was written to DuckDB: %s", exc
+        )
         if args.reboot:
-            reboot_host(args.host, args.user, args.key)
-        sys.exit(2)
+            reboot_host(
+                args.connection_host,
+                args.connection_user,
+                args.connection_key,
+            )
+        raise SystemExit(2)
 
-    # Retrieve and store the Phoronix result so perf/joule can be computed.
+    if rc != 0:
+        logger.error(
+            "Benchmark exited %d; incomplete run was not written to DuckDB",
+            rc,
+        )
+        if args.reboot:
+            reboot_host(
+                args.connection_host,
+                args.connection_user,
+                args.connection_key,
+            )
+        raise SystemExit(rc)
+
     if not args.idle_only:
-        results, xml_text = fetch_pts_result(args.host, args.result_name, args.user, args.key)
+        results, xml_text = fetch_pts_result(
+            args.connection_host,
+            args.result_name,
+            args.connection_user,
+            args.connection_key,
+        )
         if xml_text:
             archive_pts_xml(args.db, args.result_name, xml_text)
-        if results:
-            for res in results:
-                db.insert_run_result(run_id, title=res.title, scale=res.scale,
-                                     higher_is_better=res.higher_is_better, value=res.value)
-            primary = results[0]
-            db.update_run(
-                run_id,
-                bench_score=primary.value,
-                bench_unit=primary.scale,
-                higher_is_better=primary.higher_is_better,
-            )
-            if len(results) > 1:
-                logger.info(
-                    "PTS returned %d result entries; all stored in run_results, "
-                    "first (%s) is runs.bench_score",
-                    len(results), primary.title,
+        if not results:
+            logger.error("No PTS result found; incomplete run was not written to DuckDB")
+            if args.reboot:
+                reboot_host(
+                    args.connection_host,
+                    args.connection_user,
+                    args.connection_key,
                 )
-            logger.info(
-                "Stored result: %.4f %s (%s)",
-                primary.value, primary.scale,
-                "higher=better" if primary.higher_is_better else "lower=better",
+            raise SystemExit(1)
+
+        run_buffer.results = results
+        primary = results[0]
+        run_buffer.update_run(
+            bench_score=primary.value,
+            bench_unit=primary.scale,
+            higher_is_better=primary.higher_is_better,
+        )
+        logger.info(
+            "Buffered result: %.4f %s (%s)",
+            primary.value,
+            primary.scale,
+            "higher=better" if primary.higher_is_better else "lower=better",
+        )
+
+    try:
+        with Database(args.db) as database:
+            run_id = database.persist_run(
+                run_buffer.fields,
+                run_buffer.readings,
+                run_buffer.results,
             )
-        else:
-            logger.warning("No PTS result stored; bench_score left NULL for run #%d", run_id)
-            if rc == 0:
-                rc = 1
+    except Exception as exc:
+        logger.error("Could not persist completed run: %s", exc)
+        if args.reboot:
+            reboot_host(
+                args.connection_host,
+                args.connection_user,
+                args.connection_key,
+            )
+        raise SystemExit(2)
 
-    print_summary(db, run_id)
-    db.close()
+    logger.info("Persisted completed run #%d", run_id)
+    print_summary(run_buffer, run_id)
 
-    # Reboot so the next iteration starts on a freshly booted (baseline) system.
     if args.reboot:
-        reboot_host(args.host, args.user, args.key)
-
-    sys.exit(rc)
+        reboot_host(
+            args.connection_host,
+            args.connection_user,
+            args.connection_key,
+        )
+    raise SystemExit(0)
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Run a Phoronix benchmark on a remote host with power logging"
+        description="Run a Phoronix benchmark on one Ansible inventory host"
     )
-    parser.add_argument("host", help="SSH target (IP or hostname)")
-    parser.add_argument("test", nargs="?", default=None,
-                        help="Phoronix test/profile/suite "
-                             "(e.g. local/power-bench-build-kernel-defconfig-1.0.0); "
-                             "omit with --idle-only")
-    parser.add_argument("--user", "-u", help="SSH user")
-    parser.add_argument("--key", "-i", help="SSH private key path")
-    parser.add_argument("--db", "-d", default="benchmarks/power_meter.duckdb",
-                        help="DuckDB database path")
-    parser.add_argument("--optimization", "-o", default="baseline",
-                        help="Label for the active optimization (e.g. cpu_governor=powersave)")
-    parser.add_argument("--repeat", "-r", type=int, default=1,
-                        help="Repeat index (1..N; all repeats are counted)")
-    parser.add_argument("--interval", type=float, default=1.0,
-                        help="Min seconds between stored power readings")
-    parser.add_argument("--settle", "-s", type=float, default=DEFAULT_SETTLE_SECONDS,
-                        help="Minimum settle/idle/cooldown seconds around the benchmark")
-    parser.add_argument("--idle-only", action="store_true",
-                        help="Measure a long stable idle window instead of running a benchmark")
-    parser.add_argument("--idle-duration", type=float, default=600.0,
-                        help="Idle window length for --idle-only runs (default: 600 s)")
-    parser.add_argument("--idle-stable-w", type=float, default=1.0,
-                        help="Stability gate: rolling power stdev must drop below this (W)")
-    parser.add_argument("--idle-timeout", type=float, default=300.0,
-                        help="Max seconds to wait for idle stability before proceeding")
-    parser.add_argument("--cool-to", type=float, default=None,
-                        help="Wait until host CPU temp is at/below this (C) before the bench "
-                             "phase; unset = record the temperature only")
-    parser.add_argument("--ambient", type=float, default=None,
-                        help="Ambient temperature in C (default: auto-filled from the meter)")
-    parser.add_argument("--config-hash", dest="config_hash", default=None,
-                        help="Hash of the active Ansible vars (reproducibility)")
-    parser.add_argument("--mac", "-m", default=None, help="BLE MAC of the Atorch meter")
-    parser.add_argument("--timeout", "-t", type=float, default=10.0,
-                        help="BLE connection timeout in seconds")
-    parser.add_argument("--checksum-policy", choices=["strict", "warn"], default="strict",
-                        help="strict drops bad-checksum frames; warn parses them but counts failures")
-    parser.add_argument("--verbose", "-V", action="store_true", help="Enable debug logging")
-    parser.add_argument("--reboot", action=argparse.BooleanOptionalAction, default=True,
-                        help="Reboot the host after the test so the next run starts freshly booted (default: on)")
+    parser.add_argument(
+        "host",
+        help="Ansible inventory host name (literal IP addresses are rejected)",
+    )
+    parser.add_argument(
+        "test",
+        nargs="?",
+        default=None,
+        help="Phoronix test/profile/suite; omit with --idle-only",
+    )
+    parser.add_argument("--inventory", default="ansible/hosts")
+    parser.add_argument(
+        "--db",
+        "-d",
+        default="benchmarks/power_meter.duckdb",
+        help="DuckDB database path",
+    )
+    parser.add_argument("--optimization", "-o", default="baseline")
+    parser.add_argument("--repeat", "-r", type=int, default=1)
+    parser.add_argument("--interval", type=float, default=1.0)
+    parser.add_argument("--settle", "-s", type=float, default=DEFAULT_SETTLE_SECONDS)
+    parser.add_argument("--idle-only", action="store_true")
+    parser.add_argument("--idle-duration", type=float, default=600.0)
+    parser.add_argument("--idle-stable-w", type=float, default=1.0)
+    parser.add_argument("--idle-timeout", type=float, default=300.0)
+    parser.add_argument("--cool-to", type=float, default=None)
+    parser.add_argument("--ambient", type=float, default=None)
+    parser.add_argument("--config-hash", dest="config_hash", default=None)
+    parser.add_argument("--mac", "-m", default=None)
+    parser.add_argument("--timeout", "-t", type=float, default=10.0)
+    parser.add_argument(
+        "--checksum-policy",
+        choices=["strict", "warn"],
+        default="strict",
+    )
+    parser.add_argument("--verbose", "-V", action="store_true")
+    parser.add_argument(
+        "--reboot",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+    )
     args = parser.parse_args()
 
     if args.idle_only:
         args.test = "idle"
     elif not args.test:
         parser.error("test is required unless --idle-only is given")
+
+    try:
+        inventory_host = resolve_inventory_host(args.host, args.inventory)
+    except InventoryHostError as exc:
+        parser.error(str(exc))
+    args.connection_host = inventory_host.address
+    args.connection_user = inventory_host.user
+    args.connection_key = inventory_host.private_key
 
     logging.basicConfig(
         level=logging.DEBUG if args.verbose else logging.INFO,

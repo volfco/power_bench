@@ -53,7 +53,7 @@ class AmdSweepTests(unittest.TestCase):
     def test_amd_combined_branch_dry_run(self):
         result = subprocess.run(
             [
-                sys.executable, "run_suite.py", "192.168.1.76",
+                sys.executable, "run_suite.py", "node2",
                 "--sweep", "amd",
                 "--only", "stack=amd_performance+pcie_aspm",
                 "--skip-baseline", "--repeats", "1", "--dry-run",
@@ -100,7 +100,7 @@ class AmdSweepTests(unittest.TestCase):
     def test_combined_kernel_param_variant_dry_run(self):
         result = subprocess.run(
             [
-                sys.executable, "run_suite.py", "192.168.1.76",
+                sys.executable, "run_suite.py", "node2",
                 "--sweep", "amd",
                 "--only", "kernel_params=mitigations_off+nokaslr",
                 "--skip-baseline", "--repeats", "1", "--dry-run",
@@ -113,6 +113,28 @@ class AmdSweepTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("kernel_params=mitigations_off+nokaslr", result.stdout)
         self.assertIn("'kernel_params': ['mitigations=off', 'nokaslr']", result.stdout)
+
+    def test_build_jobs_expands_multiple_tests(self):
+        selected = [("variant", {}, "load")]
+
+        jobs = run_suite.build_jobs(selected, ["test/one", "test/two"], repeats=2)
+
+        self.assertEqual(
+            [(test, repeat) for _, _, test, repeat in jobs],
+            [("test/one", 1), ("test/one", 2), ("test/two", 1), ("test/two", 2)],
+        )
+
+    def test_literal_ip_host_is_rejected(self):
+        result = subprocess.run(
+            [sys.executable, "run_suite.py", "192.168.1.76", "--list"],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("must be an Ansible inventory name", result.stderr)
 
 
 if __name__ == "__main__":

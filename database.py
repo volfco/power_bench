@@ -203,6 +203,29 @@ class Database:
             [run_id, title, scale, higher_is_better, value],
         )
 
+    def persist_run(self, fields: dict, readings: list[tuple], results: list) -> int:
+        """Atomically persist one completed run and all of its dependent rows."""
+        if self._conn is None:
+            raise RuntimeError("database is not open")
+        self._conn.execute("BEGIN TRANSACTION")
+        try:
+            run_id = self.create_run(**fields)
+            for reading, phase in readings:
+                self.insert(reading, run_id=run_id, phase=phase)
+            for result in results:
+                self.insert_run_result(
+                    run_id,
+                    title=result.title,
+                    scale=result.scale,
+                    higher_is_better=result.higher_is_better,
+                    value=result.value,
+                )
+            self._conn.execute("COMMIT")
+            return run_id
+        except Exception:
+            self._conn.execute("ROLLBACK")
+            raise
+
     def query(self, sql: str, params=None):
         return self._conn.execute(sql, params or []).fetchall()
 

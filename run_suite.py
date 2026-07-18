@@ -20,18 +20,18 @@ test (the defconfig-only kernel build suite) for the performance floor. All repe
 counted — there is no warm-up discard (every run starts freshly booted; the thermal gate
 replaces it).
 
-The host must be in the Ansible inventory (ansible/hosts) AND reachable by run_benchmark
-over SSH at the same address. Start from a freshly booted host (or pass --initial-reboot).
+The host argument is an exact Ansible inventory alias. Connection details and the default
+sweep profile are read from that inventory entry.
 
 Examples:
-  python run_suite.py 192.168.1.58 --user metrolla --mac 45:AF:4E:55:56:06 \
-      --checksum-policy warn --cool-to 55                         # current rig
-  python run_suite.py 192.168.1.58 --user metrolla --only cpu_governor sched_ext
-  python run_suite.py 192.168.1.58 --inventory inventory.yml --ansible-limit node-a
-  python run_suite.py 192.168.1.58 --list                         # print the matrix and exit
-  python run_suite.py 192.168.1.58 --user metrolla --dry-run       # show commands, run nothing
-  python run_suite.py 192.168.1.58 --user metrolla --shuffle --seed 1
-  python run_suite.py 192.168.1.76 --sweep amd --only 'stack=amd_performance+pcie_aspm' --dry-run
+  python run_suite.py node2 --mac 45:AF:4E:55:56:06 \
+      --checksum-policy warn --cool-to 55
+  python run_suite.py node2 --only cpu_governor sched_ext
+  python run_suite.py node2 --inventory inventory.yml
+  python run_suite.py node2 --list
+  python run_suite.py node2 --dry-run
+  python run_suite.py node2 --shuffle --seed 1
+  python run_suite.py node2 --tests test/one test/two --repeats 1 --dry-run
 """
 
 import argparse
@@ -41,6 +41,7 @@ import logging
 import os
 import subprocess
 import sys
+from ansible_inventory import InventoryHostError, resolve_inventory_host
 
 # Fresh-boot defaults — mirror of ansible/vars/defaults.yml. Used to strip default-valued
 # keys so each varfile carries only genuine overrides. HOST-DEPENDENT entries (governor,
@@ -355,58 +356,81 @@ def existing_valid_jobs(db_path, jobs, idle_duration, host):
 
 
 def main():
-    ap = argparse.ArgumentParser(description=__doc__,
-                                 formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("host", help="SSH target; must also resolve to the inventory host")
-    ap.add_argument("--user", "-u")
-    ap.add_argument("--key", "-i")
+    ap = argparse.ArgumentParser(
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    ap.add_argument(
+        "host",
+        help="Ansible inventory host name (literal IP addresses are rejected)",
+    )
     ap.add_argument("--mac", "-m", default=None, help="BLE MAC of the Atorch meter")
     ap.add_argument("--db", default="benchmarks/power_meter.duckdb")
-    ap.add_argument("--tests", nargs="+", default=[BUILD_KERNEL_DEFCONFIG_TEST])
-    ap.add_argument("--repeats", type=int, default=3,
-                    help="runs per (variant, test); all counted, no warm-up (default: 3)")
+    ap.add_argument(
+        "--tests",
+        nargs="+",
+        default=[BUILD_KERNEL_DEFCONFIG_TEST],
+        help="one or more Phoronix tests/profiles/suites to run",
+    )
+    ap.add_argument(
+        "--repeats",
+        type=int,
+        default=3,
+        help="runs per (variant, test); all counted, no warm-up (default: 3)",
+    )
     ap.add_argument("--inventory", default="ansible/hosts")
-    ap.add_argument("--sweep", choices=sorted(SWEEP_EXPERIMENTS), default="core",
-                    help="hardware-aware catalog to run (default: core; use amd for node2)")
-    ap.add_argument("--ansible-limit", default=None,
-                    help="limit each nested apply_optimizations play to this inventory host/pattern; "
-                         "required when the inventory contains more than one benchmark node")
+    ap.add_argument(
+        "--sweep",
+        choices=sorted(SWEEP_EXPERIMENTS),
+        default=None,
+        help="catalog to run (default: inventory power_bench_sweep_profile or core)",
+    )
     ap.add_argument("--vars-dir", default="ansible/vars")
     ap.add_argument("--settle", type=float, default=30.0)
-    ap.add_argument("--idle-duration", type=float, default=600.0,
-                    help="stable-idle window length for --idle-only runs (default: 600 s)")
-    ap.add_argument("--cool-to", type=float, default=None,
-                    help="thermal gate: wait until host CPU temp is at/below this (C) "
-                         "before each bench phase (default: record-only)")
-    ap.add_argument("--checksum-policy", choices=["strict", "warn"], default="strict",
-                    help="meter checksum handling passed to run_benchmark.py")
-    ap.add_argument("--only", nargs="+", metavar="PATTERN",
-                    help="run only variants whose label contains any of these substrings "
-                         "(baseline is always included unless --skip-baseline)")
-    ap.add_argument("--exclude", nargs="+", metavar="PATTERN",
-                    help="skip variants whose label contains any of these substrings")
+    ap.add_argument("--idle-duration", type=float, default=600.0)
+    ap.add_argument("--cool-to", type=float, default=None)
+    ap.add_argument(
+        "--checksum-policy",
+        choices=["strict", "warn"],
+        default="strict",
+    )
+    ap.add_argument("--only", nargs="+", metavar="PATTERN")
+    ap.add_argument("--exclude", nargs="+", metavar="PATTERN")
     ap.add_argument("--skip-baseline", action="store_true")
-    ap.add_argument("--list", action="store_true", help="print the variant matrix and exit")
-    ap.add_argument("--dry-run", action="store_true",
-                    help="print the apply/benchmark commands without running anything")
-    ap.add_argument("--skip-existing", action="store_true",
-                    help="resume mode: skip jobs that already have a valid DB row "
-                         "for the same variant, test, repeat, and config hash")
-    ap.add_argument("--shuffle", action="store_true",
-                    help="randomize iteration order to spread out drift across the session")
-    ap.add_argument("--seed", type=int, default=0, help="RNG seed for --shuffle (reproducible)")
-    ap.add_argument("--initial-reboot", action="store_true",
-                    help="reboot the host once before the first iteration")
+    ap.add_argument("--list", action="store_true")
+    ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--skip-existing", action="store_true")
+    ap.add_argument("--shuffle", action="store_true")
+    ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--initial-reboot", action="store_true")
     args = ap.parse_args()
 
-    logging.basicConfig(level=logging.INFO,
-                        format="%(asctime)s %(levelname)-5s %(message)s",
-                        datefmt="%Y-%m-%d %H:%M:%S")
+    try:
+        inventory_host = resolve_inventory_host(args.host, args.inventory)
+    except InventoryHostError as exc:
+        ap.error(str(exc))
 
-    selected = select_experiments(args.only, args.skip_baseline, args.sweep, args.exclude)
+    sweep = args.sweep or inventory_host.sweep
+    if sweep not in SWEEP_EXPERIMENTS:
+        ap.error(
+            f"inventory host {args.host!r} selects unknown sweep profile {sweep!r}"
+        )
+
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)-5s %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
+
+    selected = select_experiments(
+        args.only,
+        args.skip_baseline,
+        sweep,
+        args.exclude,
+    )
     if not selected:
         print("No variants selected.", file=sys.stderr)
-        sys.exit(1)
+        raise SystemExit(1)
 
     if args.list:
         print_matrix(selected)
@@ -416,106 +440,178 @@ def main():
     requested_jobs = list(jobs)
     skipped_existing = 0
     if args.skip_existing:
-        completed = existing_valid_jobs(args.db, jobs, args.idle_duration, args.host)
+        completed = existing_valid_jobs(
+            args.db,
+            jobs,
+            args.idle_duration,
+            args.host,
+        )
         before = len(jobs)
         jobs = [
-            job for job in jobs
-            if (job[0], job[2], job[3],
-                config_hash(nondefaults(job[1]))) not in completed
+            job
+            for job in jobs
+            if (
+                job[0],
+                job[2],
+                job[3],
+                config_hash(nondefaults(job[1])),
+            )
+            not in completed
         ]
         skipped_existing = before - len(jobs)
     if args.shuffle:
         import random
+
         random.Random(args.seed).shuffle(jobs)
 
-    print(f"Sweep: {len(selected)} variants, {args.repeats} repeats each = {len(jobs)} runs"
-          f"{' (shuffled)' if args.shuffle else ''}.")
+    print(
+        f"Host: {args.host} | sweep: {sweep} | "
+        f"{len(selected)} variants, {args.repeats} repeats = {len(jobs)} runs."
+    )
     if skipped_existing:
         print(f"Skipped {skipped_existing} existing valid run(s).")
-    print(f"Tests: {', '.join(args.tests)} (idle-targeted variants: {IDLE_TEST} + {PERF_FLOOR_TEST})")
+    print(
+        f"Tests: {', '.join(args.tests)} "
+        f"(idle-targeted variants: {IDLE_TEST} + {PERF_FLOOR_TEST})"
+    )
     if args.dry_run:
         print("(dry run — no varfiles written, nothing applied or measured)\n")
 
     reboot_host = None
     if not args.dry_run:
-        from run_benchmark import reboot_host   # reuse the reboot-and-wait helper
+        from run_benchmark import reboot_host
+
         os.makedirs(args.vars_dir, exist_ok=True)
         if args.initial_reboot:
-            reboot_host(args.host, args.user, args.key)
+            reboot_host(
+                inventory_host.address,
+                inventory_host.user,
+                inventory_host.private_key,
+            )
 
-    for i, (label, overrides, test, r) in enumerate(jobs, 1):
-        vpath = os.path.join(args.vars_dir, f"iter_{i:04d}_{safe_name(label)}.yml")
-        nd = nondefaults(overrides)
-        print(f"\n=== iter {i}/{len(jobs)}: {label} | test={test} | repeat={r} | nondefaults={nd} ===",
-              flush=True)
+    for index, (label, overrides, test, repeat) in enumerate(jobs, 1):
+        vpath = os.path.join(
+            args.vars_dir,
+            f"iter_{index:04d}_{safe_name(label)}.yml",
+        )
+        non_default_values = nondefaults(overrides)
+        print(
+            f"\n=== iter {index}/{len(jobs)}: {label} | test={test} | "
+            f"repeat={repeat} | nondefaults={non_default_values} ===",
+            flush=True,
+        )
 
-        apply_cmd = ["ansible-playbook", "-i", args.inventory]
-        if args.ansible_limit:
-            apply_cmd += ["--limit", args.ansible_limit]
-        apply_cmd += ["ansible/apply_optimizations.yml", "-e", f"@{vpath}"]
+        apply_cmd = [
+            "ansible-playbook",
+            "-i",
+            args.inventory,
+            "--limit",
+            args.host,
+            "ansible/apply_optimizations.yml",
+            "-e",
+            f"@{vpath}",
+        ]
         bench_cmd = [sys.executable, "run_benchmark.py", args.host]
         if test != IDLE_TEST:
             bench_cmd.append(test)
-        bench_cmd += ["--db", args.db, "--optimization", label,
-                      "--repeat", str(r), "--settle", str(args.settle),
-                      "--config-hash", config_hash(nd), "--reboot"]
+        bench_cmd += [
+            "--inventory",
+            args.inventory,
+            "--db",
+            args.db,
+            "--optimization",
+            label,
+            "--repeat",
+            str(repeat),
+            "--settle",
+            str(args.settle),
+            "--config-hash",
+            config_hash(non_default_values),
+            "--reboot",
+        ]
         if test == IDLE_TEST:
-            bench_cmd += ["--idle-only", "--idle-duration", str(args.idle_duration)]
+            bench_cmd += [
+                "--idle-only",
+                "--idle-duration",
+                str(args.idle_duration),
+            ]
         elif args.cool_to is not None:
             bench_cmd += ["--cool-to", str(args.cool_to)]
-        if args.user:
-            bench_cmd += ["--user", args.user]
         if args.mac:
             bench_cmd += ["--mac", args.mac]
         if args.checksum_policy != "strict":
             bench_cmd += ["--checksum-policy", args.checksum_policy]
-        if args.key:
-            bench_cmd += ["--key", args.key]
 
         if args.dry_run:
-            print("  would write " + vpath + ":  " + (str(nd) if nd else "(empty)"))
+            print(
+                "  would write "
+                + vpath
+                + ":  "
+                + (str(non_default_values) if non_default_values else "(empty)")
+            )
             print("  + " + " ".join(apply_cmd))
             print("  + " + " ".join(bench_cmd))
             continue
 
         write_varfile(vpath, overrides)
         if sh(apply_cmd) != 0:
-            print(f"!! apply failed for iter {i}; rebooting to clear partial state, then skipping",
-                  flush=True)
-            reboot_host(args.host, args.user, args.key)
+            print(
+                f"!! apply failed for iter {index}; rebooting before the next iteration",
+                flush=True,
+            )
+            reboot_host(
+                inventory_host.address,
+                inventory_host.user,
+                inventory_host.private_key,
+            )
             continue
         if sh(bench_cmd) != 0:
-            # run_benchmark reboots on its own failure paths, but belt-and-braces: a
-            # crashed process must never leak this iteration's knobs into the next.
-            print(f"!! benchmark failed for iter {i}; rebooting before the next iteration",
-                  flush=True)
-            reboot_host(args.host, args.user, args.key)
+            print(
+                f"!! benchmark failed for iter {index}; rebooting before the next iteration",
+                flush=True,
+            )
+            reboot_host(
+                inventory_host.address,
+                inventory_host.user,
+                inventory_host.private_key,
+            )
 
     if not args.dry_run:
-        # Reconcile GRUB back to defaults so a trailing kernel_params variant can't
-        # leave a persistent boot param behind.
         final = os.path.join(args.vars_dir, "iter_final_reconcile.yml")
-        with open(final, "w") as f:
-            f.write("# Final reconcile — everything back to fresh-boot defaults.\n"
-                    "kernel_params: []\n")
+        with open(final, "w") as file:
+            file.write(
+                "# Final reconcile — everything back to fresh-boot defaults.\n"
+                "kernel_params: []\n"
+            )
         print("\nFinal reconcile to defaults...", flush=True)
-        final_cmd = ["ansible-playbook", "-i", args.inventory]
-        if args.ansible_limit:
-            final_cmd += ["--limit", args.ansible_limit]
-        final_cmd += ["ansible/apply_optimizations.yml", "-e", f"@{final}"]
+        final_cmd = [
+            "ansible-playbook",
+            "-i",
+            args.inventory,
+            "--limit",
+            args.host,
+            "ansible/apply_optimizations.yml",
+            "-e",
+            f"@{final}",
+        ]
         final_rc = sh(final_cmd)
 
-        # A child command can fail after creating a partial row (or a meter can
-        # produce an invalid row while the benchmark itself exits 0).  Do not
-        # report a sweep as successful until every requested repeat has a valid
-        # row for this host.  This also makes --skip-existing a safe resume mode.
-        completed = existing_valid_jobs(args.db, requested_jobs,
-                                        args.idle_duration, args.host)
+        completed = existing_valid_jobs(
+            args.db,
+            requested_jobs,
+            args.idle_duration,
+            args.host,
+        )
         missing = [
             (label, test, repeat)
             for label, overrides, test, repeat in requested_jobs
-            if (label, test, repeat,
-                config_hash(nondefaults(overrides))) not in completed
+            if (
+                label,
+                test,
+                repeat,
+                config_hash(nondefaults(overrides)),
+            )
+            not in completed
         ]
         if final_rc != 0 or missing:
             if final_rc != 0:
@@ -523,8 +619,11 @@ def main():
             if missing:
                 print("!! sweep has no valid result for:", file=sys.stderr)
                 for label, test, repeat in missing:
-                    print(f"   {label} | test={test} | repeat={repeat}", file=sys.stderr)
-            sys.exit(1)
+                    print(
+                        f"   {label} | test={test} | repeat={repeat}",
+                        file=sys.stderr,
+                    )
+            raise SystemExit(1)
 
     print(f"\nSweep complete: {len(jobs)} iterations.", flush=True)
 

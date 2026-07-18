@@ -12,6 +12,23 @@ SERVICE_UUID = "0000ffe0-0000-1000-8000-00805f9b34fb"
 CHARACTERISTIC_UUID = "0000ffe1-0000-1000-8000-00805f9b34fb"
 DEVICE_NAME_PREFIXES = ("UD18", "AT24", "J7", "DL24")
 
+def is_atorch_device(device) -> bool:
+    """Return whether a BLE device name matches a supported Atorch family."""
+    return bool(
+        device.name
+        and any(device.name.upper().startswith(prefix) for prefix in DEVICE_NAME_PREFIXES)
+    )
+
+
+async def discover_atorch_devices(timeout: float = 10.0):
+    """Scan for and return supported Atorch devices, deduplicated by address."""
+    devices = await BleakScanner.discover(timeout=timeout)
+    matches = {device.address: device for device in devices if is_atorch_device(device)}
+    return sorted(
+        matches.values(),
+        key=lambda device: ((device.name or "").casefold(), device.address),
+    )
+
 
 class MeterConnection:
     def __init__(self, mac_address: str | None = None, timeout: float = 10.0):
@@ -30,9 +47,7 @@ class MeterConnection:
         else:
             logger.info("Scanning for Atorch meter...")
             device = await BleakScanner.find_device_by_filter(
-                lambda d, _: any(
-                    d.name and d.name.startswith(p) for p in DEVICE_NAME_PREFIXES
-                ),
+                lambda discovered, _: is_atorch_device(discovered),
                 timeout=self.timeout,
             )
             if device is None:
