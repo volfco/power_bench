@@ -138,13 +138,21 @@ class DuckDbReportTests(unittest.TestCase):
         self.assertIn('data-view="hosts"', report)
         self.assertIn('id="hostsView"', report)
         self.assertIn('id="hostComparisons"', report)
-        self.assertIn('data-host-configuration="eco"', report)
-        self.assertIn('class="built-chart"', report)
-        self.assertIn('data-host-metric="energy_wh"', report)
-        self.assertIn('class="test-result" data-host-test="compile"', report)
+        self.assertIn('id="hostChart"', report)
+        self.assertIn('id="hostRows"', report)
+        self.assertIn('id="hostMetric"', report)
+        self.assertIn("function renderHostComparisons(", report)
+        self.assertIn('id="rangeView"', report)
+        self.assertIn('id="rangeChart"', report)
+        self.assertIn('id="rangeRows"', report)
+        self.assertIn('id="rangeMetric"', report)
+        self.assertIn("function renderRanges(", report)
+        self.assertIn('id="subtestsView"', report)
+        self.assertIn('id="subChart"', report)
+        self.assertIn('id="subRows"', report)
+        self.assertIn("function renderSubtests(", report)
         self.assertIn("C compiler", report)
         self.assertIn("Linker", report)
-        self.assertIn("function renderHostComparisons(", report)
         self.assertNotIn("chart.js", report.lower())
         self.assertNotIn("<canvas", report.lower())
         self.assertEqual(report.count('id="hostConfigs"'), 1)
@@ -170,6 +178,12 @@ class DuckDbReportTests(unittest.TestCase):
         }
         self.assertEqual(host_specs["alpha"]["CPU model"], ["alpha-cpu"])
         self.assertEqual(host_specs["beta"]["Memory"], [34359738368])
+        sub_results = payload["resultsByRun"]
+        self.assertEqual(
+            [result["title"] for result in sub_results["1"]],
+            ["C compiler", "Linker"],
+        )
+        self.assertNotIn("applied_config", payload["runs"][0])
 
         detail = self.root / "runs" / "2.html"
         self.assertTrue(detail.is_file())
@@ -191,7 +205,11 @@ class DuckDbReportTests(unittest.TestCase):
         self.assertIn("function renderResults(", detail_report)
         self.assertIn("Power consumption over time", detail_report)
         self.assertNotIn("</script><script>alert(1)</script>", report)
-        self.assertIn(r"\u003c/script\u003e", report)
+        # The raw applied-config JSON (including hostile markup) is only
+        # embedded on per-run detail pages, safely escaped.
+        unsafe_detail = (self.root / "runs" / "9.html").read_text(encoding="utf-8")
+        self.assertNotIn("</script><script>alert(1)</script>", unsafe_detail)
+        self.assertIn(r"\u003c/script\u003e", unsafe_detail)
 
         parser = _DocumentParser()
         parser.feed(report)
