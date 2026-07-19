@@ -60,7 +60,7 @@ def main(argv: list[str] | None = None) -> int:
         str(ROOT / "run_suite.py"),
         args.host,
         "--repeats",
-        "3",
+        "1",
         "--skip-existing",
         *suite_args,
     ]
