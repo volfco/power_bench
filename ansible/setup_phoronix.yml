@@ -33,13 +33,16 @@
       - pts/database
       - pts/audio-encoding
       - pts/browsers
+    # Workloads requested by run_suite.py. Each item may be a test profile or a
+    # suite; PTS batch-install resolves either form before measurement begins.
+    pts_requested_items: []
     # PTS 10.8 can leave a suite dependency uninstalled while batch-install exits
     # successfully. Make the browsers suite's sole profile an explicit, verified
     # pre-install so measured runs never fail on a missing system/selenium profile.
     pts_browser_tests:
       - system/selenium
-    pts_preinstall_tests: "{{ pts_tests + (pts_memory_tests if (pts_install_memory_suite | bool) else []) + (pts_browser_tests if ('pts/browsers' in pts_extended_suites and (pts_install_extended_suites | bool)) else []) }}"
-    pts_preinstall_suites: "{{ pts_extended_suites if (pts_install_extended_suites | bool) else [] }}"
+    pts_preinstall_suites: "{{ (pts_requested_items + (pts_extended_suites if (pts_install_extended_suites | bool) else [])) | unique | list }}"
+    pts_preinstall_tests: "{{ pts_tests + (pts_memory_tests if (pts_install_memory_suite | bool) else []) + (pts_browser_tests if ('pts/browsers' in pts_preinstall_suites) else []) }}"
     pts_browser_display: ":99"
 
   tasks:
@@ -139,6 +142,7 @@
     - name: Read the installed Google Chrome version
       command: google-chrome --product-version
       register: pts_chrome_version
+      check_mode: false
       changed_when: false
       when:
         - ansible_architecture == "x86_64"
@@ -339,6 +343,7 @@
       environment:
         PYTHONNOUSERSITE: "1"
       register: pts_selenium_version
+      check_mode: false
       changed_when: false
       failed_when: false
       when: "'pts/browsers' in pts_preinstall_suites"
@@ -463,6 +468,7 @@
       become: false
       command: phoronix-test-suite list-installed-tests
       register: pts_installed_tests
+      check_mode: false
       changed_when: false
 
     - name: Verify requested PTS test profiles are installed
@@ -476,13 +482,17 @@
     # single-profile creates guard above. PTS recognizes already-installed profiles
     # itself, while this task guarantees that all suite dependencies are resolved
     # before the meter-backed run begins.
-    - name: Pre-install selected PTS suites (downloads + compiles; can take a while)
+    - name: Pre-install selected PTS tests and suites (downloads + compiles; can take a while)
       become: false
       command: phoronix-test-suite batch-install {{ item }}
       environment:
         PTS_SILENT_MODE: "1"
         DISPLAY: "{{ pts_browser_display if item == 'pts/browsers' else (ansible_env.DISPLAY | default('')) }}"
       loop: "{{ pts_preinstall_suites }}"
+      register: pts_requested_install_results
+      failed_when: >-
+        pts_requested_install_results.rc != 0 or
+        '[PROBLEM]' in (pts_requested_install_results.stdout | default(''))
 
     - name: Find installed Selenium profile directories
       become: false

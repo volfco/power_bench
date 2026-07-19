@@ -72,6 +72,7 @@ DEFAULTS = {
 IDLE_TEST = "idle"
 BUILD_KERNEL_DEFCONFIG_TEST = "local/power-bench-build-kernel-defconfig-1.0.0"
 PERF_FLOOR_TEST = BUILD_KERNEL_DEFCONFIG_TEST
+MEMORY_SUITE_TEST = "local/power-bench-memory-1.0.0"
 
 # The OFAT catalog: (label, {non-default knobs}, target). Every run starts freshly booted
 # (= baseline), so the delta is attributable to that one change. target selects the tests
@@ -254,6 +255,25 @@ def safe_name(label):
 def sh(cmd):
     print("+ " + " ".join(cmd), flush=True)
     return subprocess.run(cmd).returncode
+
+
+def build_pts_setup_command(inventory, host, tests):
+    """Build the host-limited PTS setup command for the requested workloads."""
+    requested = list(dict.fromkeys(test for test in tests if test != IDLE_TEST))
+    extra_vars = {
+        "pts_requested_items": requested,
+        "pts_install_memory_suite": MEMORY_SUITE_TEST in requested,
+    }
+    return [
+        "ansible-playbook",
+        "-i",
+        inventory,
+        "--limit",
+        host,
+        "ansible/setup_phoronix.yml",
+        "-e",
+        json.dumps(extra_vars, separators=(",", ":")),
+    ]
 
 
 def probe_governor_support(host, user=None, key=None):
@@ -530,14 +550,20 @@ def main():
         f"Tests: {', '.join(args.tests)} "
         f"(idle-targeted variants: {IDLE_TEST} + {PERF_FLOOR_TEST})"
     )
+    setup_cmd = build_pts_setup_command(args.inventory, args.host, args.tests)
     if args.dry_run:
         print("(dry run — no varfiles written, nothing applied or measured)\n")
+        print("  test setup: " + " ".join(setup_cmd))
 
     reboot_host = None
     if not args.dry_run:
         from run_benchmark import reboot_host
 
         os.makedirs(args.vars_dir, exist_ok=True)
+        print("\nPreparing requested PTS tests on the target...", flush=True)
+        if sh(setup_cmd) != 0:
+            print("!! PTS test setup failed; no measurements were started", file=sys.stderr)
+            raise SystemExit(1)
         if args.initial_reboot:
             reboot_host(
                 inventory_host.address,

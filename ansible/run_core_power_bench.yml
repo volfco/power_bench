@@ -1,7 +1,8 @@
 ---
 # End-to-end, controller-driven power-benchmark entry point for a new node/profile.
 #
-# It first performs the idempotent PTS setup, then drives the standard harness:
+# The standard harness first performs host-limited, idempotent PTS setup for the
+# selected power_bench_tests, then drives:
 # varfile -> verified apply -> meter-backed measurement -> reboot for every run.
 # Results are written directly to the configured DuckDB by run_benchmark.py.
 #
@@ -26,13 +27,11 @@
 # Example:
 #   ansible-playbook -i ansible/hosts ansible/run_core_power_bench.yml --limit node2 \
 #     -e power_bench_meter_mac=45:AF:4E:55:56:06
-# Add `-e power_bench_dry_run=true` to run the idempotent PTS setup and print the
-# exact selected matrix without applying power settings, reading the meter, or rebooting.
+# Add `-e power_bench_dry_run=true` to print the exact setup command and selected
+# matrix without changing the target, reading the meter, or rebooting.
 #
 # The controller must be physically able to reach the node's BLE meter and must use
 # public-key SSH authentication to the node; run_suite.py intentionally uses BatchMode.
-
-- import_playbook: setup_phoronix.yml
 
 - name: Run the core power-benchmark matrix
   hosts: benchmarks
@@ -115,11 +114,9 @@
       ansible.builtin.set_fact:
         power_bench_runner_argv: >-
           {{
-            [power_bench_python, 'run_suite.py', power_bench_target_host,
+            [power_bench_python, 'run_suite.py', inventory_hostname,
              '--sweep', power_bench_sweep,
-             '--user', power_bench_ssh_user,
              '--inventory', power_bench_inventory,
-             '--ansible-limit', inventory_hostname,
              '--db', power_bench_db,
              '--vars-dir', power_bench_vars_dir,
              '--repeats', power_bench_repeats | string,
@@ -131,8 +128,6 @@
             + (['--initial-reboot'] if power_bench_initial_reboot | bool else [])
             + (['--cool-to', power_bench_cool_to | string]
                if power_bench_cool_to is not none else [])
-            + (['--key', power_bench_ssh_key]
-               if power_bench_ssh_key | length > 0 else [])
             + (['--shuffle', '--seed', power_bench_seed | string]
                if power_bench_shuffle | bool else [])
             + (['--skip-existing'] if power_bench_skip_existing | bool else [])

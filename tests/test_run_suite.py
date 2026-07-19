@@ -1,3 +1,4 @@
+import json
 import subprocess
 import sys
 import unittest
@@ -123,6 +124,47 @@ class AmdSweepTests(unittest.TestCase):
             [(test, repeat) for _, _, test, repeat in jobs],
             [("test/one", 1), ("test/one", 2), ("test/two", 1), ("test/two", 2)],
         )
+
+    def test_pts_setup_command_passes_selected_items_to_target_node(self):
+        command = run_suite.build_pts_setup_command(
+            "ansible/hosts", "node3", ["pts/browsers", "pts/disk", "pts/browsers"]
+        )
+
+        self.assertEqual(command[:6], [
+            "ansible-playbook", "-i", "ansible/hosts", "--limit", "node3",
+            "ansible/setup_phoronix.yml",
+        ])
+        extra_vars = json.loads(command[-1])
+        self.assertEqual(extra_vars["pts_requested_items"], ["pts/browsers", "pts/disk"])
+        self.assertFalse(extra_vars["pts_install_memory_suite"])
+
+    def test_pts_setup_command_enables_local_memory_suite(self):
+        command = run_suite.build_pts_setup_command(
+            "ansible/hosts", "node2", ["idle", run_suite.MEMORY_SUITE_TEST]
+        )
+
+        extra_vars = json.loads(command[-1])
+        self.assertEqual(extra_vars["pts_requested_items"], [run_suite.MEMORY_SUITE_TEST])
+        self.assertTrue(extra_vars["pts_install_memory_suite"])
+
+    def test_browser_dry_run_schedules_setup_before_measurement(self):
+        result = subprocess.run(
+            [
+                sys.executable, "run_suite.py", "node3",
+                "--tests", "pts/browsers", "--only", "baseline",
+                "--repeats", "1", "--dry-run",
+            ],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        setup_at = result.stdout.index("test setup: ansible-playbook")
+        benchmark_at = result.stdout.index("run_benchmark.py node3 pts/browsers")
+        self.assertLess(setup_at, benchmark_at)
+        self.assertIn('"pts_requested_items":["pts/browsers"]', result.stdout)
 
     def test_literal_ip_host_is_rejected(self):
         result = subprocess.run(
