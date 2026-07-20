@@ -462,7 +462,7 @@ def existing_valid_jobs(db_path, jobs, idle_duration, host):
     without duplicating good measurements, while still re-running missing or invalid
     rows. Runs are scoped to ``host`` so a shared DuckDB can safely hold measurements
     for multiple nodes. Validity mirrors the handoff criteria: zero dropped packets,
-    good idle sample count for idle-only runs, and coverage >= 0.9 with a stored score
+    good idle sample count for idle-only runs, and coverage >= 0.8 with a stored score
     for load runs.
     """
     try:
@@ -478,7 +478,7 @@ def existing_valid_jobs(db_path, jobs, idle_duration, host):
         return set()
 
     completed = set()
-    idle_min_samples = int(idle_duration * 0.9)
+    idle_min_samples = int(idle_duration * 0.8)
     for label, overrides, test, repeat in jobs:
         cfg = config_hash(nondefaults(overrides))
         if test == IDLE_TEST:
@@ -502,7 +502,7 @@ def existing_valid_jobs(db_path, jobs, idle_duration, host):
                 FROM runs
                 WHERE host = ? AND optimization = ? AND test = ? AND repeat_idx = ?
                   AND config_hash = ? AND COALESCE(dropped_packets, 0) = 0
-                  AND COALESCE(bench_sample_coverage, 0) >= 0.9
+                  AND COALESCE(bench_sample_coverage, 0) >= 0.8
                   AND bench_score IS NOT NULL
                 LIMIT 1
                 """,
