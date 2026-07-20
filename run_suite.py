@@ -7,7 +7,8 @@ test suite. Each iteration:
   1. writes a minimal Ansible varfile with ONLY the non-default knobs for the variant
      (ansible/vars/iter_<NNNN>_<label>.yml),
   2. applies it with apply_optimizations.yml (which verifies every knob took effect),
-  3. runs run_benchmark.py (logs power, stores the result, then reboots the host),
+  3. runs run_benchmark.py (logs every valid meter packet, stores the result, then
+     reboots the host),
 
 so every iteration begins on a freshly booted baseline — the reboot is the reset. If an
 apply or benchmark fails, the host is rebooted before the next iteration so a failed run

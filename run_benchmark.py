@@ -50,6 +50,7 @@ logger = logging.getLogger("run_benchmark")
 DEFAULT_SETTLE_SECONDS = 30
 METER_FIRST_READING_TIMEOUT = 15.0
 READ_PACKET_TIMEOUT = 5.0
+EXPECTED_REPORT_INTERVAL_SECONDS = 1.0
 IDLE_STDEV_WINDOW = 15          # samples in the rolling window for the stability gate
 THERMAL_GATE_TIMEOUT = 300.0
 THERMAL_POLL_SECONDS = 10.0
@@ -276,10 +277,9 @@ def archive_pts_xml(db_path: str, result_name: str, xml_text: str):
     logger.info("Archived PTS result XML to %s", path)
 
 
-async def power_logger(run: RunBuffer, interval: float,
-                       conn: MeterConnection, state: LoggerState, stop_event: asyncio.Event):
+async def power_logger(run: RunBuffer, conn: MeterConnection,
+                       state: LoggerState, stop_event: asyncio.Event):
     seq = 0
-    last_log = 0.0
     while not stop_event.is_set():
         try:
             raw = await conn.read_packet(timeout=READ_PACKET_TIMEOUT)
@@ -302,10 +302,6 @@ async def power_logger(run: RunBuffer, interval: float,
                 continue
 
         now = time.time()
-        if now - last_log < interval:
-            continue
-        last_log = now
-
         try:
             reading = parse_report(raw, now)
         except ValueError:
@@ -423,9 +419,7 @@ async def thermal_gate(args: argparse.Namespace) -> float | None:
     return temp
 
 
-def finalize_bench_metrics(
-    run: RunBuffer, bench_start: float, bench_end: float, interval: float
-):
+def finalize_bench_metrics(run: RunBuffer, bench_start: float, bench_end: float):
     """Calculate integrated energy and coverage from buffered bench samples."""
     rows = sorted(
         ((reading.timestamp, reading.power) for reading in run.phase_readings("bench")),
@@ -438,7 +432,11 @@ def finalize_bench_metrics(
             for (t0, p0), (t1, p1) in zip(rows, rows[1:])
         ) / 3600.0
     duration = bench_end - bench_start
-    coverage = len(rows) / (duration / interval) if duration > 0 else None
+    coverage = (
+        len(rows) / (duration / EXPECTED_REPORT_INTERVAL_SECONDS)
+        if duration > 0
+        else None
+    )
     run.update_run(
         energy_wh_integrated=energy_wh,
         bench_sample_coverage=coverage,
@@ -460,7 +458,7 @@ async def run_async(args: argparse.Namespace, run: RunBuffer) -> int:
     logger.info("Connecting to power meter...")
     await conn.connect()
     logger_task = asyncio.create_task(
-        power_logger(run, args.interval, conn, state, stop_event)
+        power_logger(run, conn, state, stop_event)
     )
     proc = None
     try:
@@ -518,7 +516,7 @@ async def run_async(args: argparse.Namespace, run: RunBuffer) -> int:
             energy_wh_bench_end=state.latest_energy(),
         )
         logger.info("Benchmark finished (exit %d)", proc.returncode)
-        finalize_bench_metrics(run, bench_start, bench_end, args.interval)
+        finalize_bench_metrics(run, bench_start, bench_end)
 
         state.phase = "cooldown"
         logger.info("Cooldown for %ss...", args.settle)
@@ -747,7 +745,6 @@ def main():
     )
     parser.add_argument("--optimization", "-o", default="baseline")
     parser.add_argument("--repeat", "-r", type=int, default=1)
-    parser.add_argument("--interval", type=float, default=1.0)
     parser.add_argument("--settle", "-s", type=float, default=DEFAULT_SETTLE_SECONDS)
     parser.add_argument("--idle-only", action="store_true")
     parser.add_argument("--idle-duration", type=float, default=600.0)

@@ -1,3 +1,4 @@
+import asyncio
 import unittest
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -25,6 +26,36 @@ def benchmark_args(**overrides):
 
 
 class RunBufferTests(unittest.TestCase):
+    def test_power_logger_keeps_every_valid_packet(self):
+        stop_event = asyncio.Event()
+        packets = [b"\xff\x55\x01first", b"\xff\x55\x01second"]
+
+        class FakeConnection:
+            async def read_packet(self, timeout):
+                packet = packets.pop(0)
+                if not packets:
+                    stop_event.set()
+                return packet
+
+        readings = [MagicMock(power=10.0), MagicMock(power=11.0)]
+        run = run_benchmark.RunBuffer()
+        state = run_benchmark.LoggerState()
+        state.checksum_policy = "strict"
+
+        with (
+            patch("run_benchmark.verify_checksum", return_value=True),
+            patch("run_benchmark.parse_report", side_effect=readings),
+            patch("run_benchmark.time.time", side_effect=[100.0, 100.1]),
+        ):
+            asyncio.run(
+                run_benchmark.power_logger(
+                    run, FakeConnection(), state, stop_event
+                )
+            )
+
+        self.assertEqual(run.readings, [(readings[0], "settle"), (readings[1], "settle")])
+        self.assertEqual(state.valid, 2)
+
     def test_failed_run_never_opens_duckdb(self):
         args = benchmark_args()
         with (
