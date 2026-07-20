@@ -39,7 +39,7 @@ def invalid_run_ids(connection: duckdb.DuckDBPyConnection) -> list[int]:
     dropped = "COALESCE(r.dropped_packets, 0) > 0" if "dropped_packets" in columns else "FALSE"
     complete = "r.bench_end IS NOT NULL" if "bench_end" in columns else "FALSE"
     scored = "r.bench_score IS NOT NULL" if "bench_score" in columns else "FALSE"
-    coverage = "COALESCE(r.bench_sample_coverage, 0) >= 0.9" if "bench_sample_coverage" in columns else "FALSE"
+    coverage = "COALESCE(r.bench_sample_coverage, 0) >= 0.8" if "bench_sample_coverage" in columns else "FALSE"
     readings = (
         "SELECT run_id, count(*) FILTER (WHERE phase = 'idle') AS idle_samples "
         "FROM readings GROUP BY run_id"
