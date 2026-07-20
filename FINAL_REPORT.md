@@ -118,3 +118,95 @@ should be started until a short residency test shows a meaningful package-state 
 
 The consolidated aggregates are in `benchmarks/results.csv`; detailed rationale is
 in `theory/`, especially `theory/pcie_aspm.md` and `theory/network_power.md`.
+
+## Combined (stacked) configurations
+
+Phase D stacks the top OFAT winners into a single boot to measure additive or
+interactive effects. Every combined variant is defined in
+[`run_suite.py`](run_suite.py) — the `EXPERIMENTS` list (Intel, line 84) and
+`AMD_EXPERIMENTS` list (AMD, line 206) — as a tuple of
+`(label, {knob_overrides}, target)`. Each override key maps to an Ansible variable
+consumed by [`ansible/apply_optimizations.yml`](ansible/apply_optimizations.yml);
+kernel params are applied via a managed GRUB fragment and require a reboot.
+
+### Intel combined stacks
+
+All Intel stacks use the `core` sweep profile and target the Intel-specific knobs
+(`intel_pstate` EPP, `max_perf_pct`). Kernel-param variants require a reboot to
+apply and clear.
+
+| # | Label | Knobs changed | Reboot | Rationale |
+|---|-------|---------------|--------|-----------|
+| 1 | `combined=mitigations+nokaslr+turbo_off+pcie_aspm+pstate90` | `mitigations=off` + `nokaslr` + `turbo=off` + `pcie_aspm=powersave` + `max_perf_pct=90` | yes | Full 5-knob stack without governor override — keeps default `powersave` governor. Tests kernel hardening removal + turbo + ASPM + conservative pstate cap. |
+| 2 | `combined=mitigations+nokaslr+turbo_off+pcie_aspm+governor_powersave` | `mitigations=off` + `nokaslr` + `turbo=off` + `pcie_aspm=powersave` + `cpu_governor=powersave` | yes | Drops `max_perf_pct` in favor of governor-level power saving. Tests whether governor and pstate cap overlap or complement. |
+| 3 | `combined=mitigations+nokaslr+turbo_off+pstate90+governor_powersave` | `mitigations=off` + `nokaslr` + `turbo=off` + `max_perf_pct=90` + `cpu_governor=powersave` | yes | Drops PCIe ASPM to isolate kernel + turbo + pstate + governor interaction without idle bus power changes. |
+| 4 | `combined=mitigations+nokaslr+turbo_off+pcie_aspm` | `mitigations=off` + `nokaslr` + `turbo=off` + `pcie_aspm=powersave` | yes | Lightweight 4-knob stack: kernel + turbo + ASPM only. No pstate cap or governor change — baseline for comparison against the full stacks. |
+| 5 | `combined=all_five` | `mitigations=off` + `nokaslr` + `turbo=off` + `pcie_aspm=powersave` + `max_perf_pct=90` + `cpu_governor=powersave` | yes | Maximum overlap: all six knobs together. Tests whether the cumulative effect exceeds the sum of individual wins, or whether knobs cancel. |
+| 6 | `combined=turbo_off+pcie_aspm+pstate90+governor_powersave` | `turbo=off` + `pcie_aspm=powersave` + `max_perf_pct=90` + `cpu_governor=powersave` | no | Production-safe (no kernel params). Four runtime knobs — the heaviest stack deployable without a reboot. |
+| 7 | `combined=turbo_off+pcie_aspm+pstate90` | `turbo=off` + `pcie_aspm=powersave` + `max_perf_pct=90` | no | Minimal production stack: turbo + ASPM + pstate cap. No governor override, no kernel params. |
+| 8 | `combined=turbo_off+governor_powersave+pcie_aspm+gpu_low` | `turbo=off` + `cpu_governor=powersave` + `pcie_aspm=powersave` + `gpu_power_profile=low` | no | Production-safe with GPU power management added. Tests whether GPU power profile stacks with the core wins. |
+
+Knob details (links to implementation):
+- `mitigations=off` + `nokaslr` — kernel boot params, applied via GRUB fragment:
+  [`ansible/optimizations/kernel_params.yml`](ansible/optimizations/kernel_params.yml)
+- `turbo=off` — `intel_pstate/no_turbo=1`:
+  [`ansible/optimizations/turbo_boost.yml`](ansible/optimizations/turbo_boost.yml)
+- `pcie_aspm=powersave` — PCIe link power management:
+  [`ansible/optimizations/pcie_aspm.yml`](ansible/optimizations/pcie_aspm.yml)
+- `max_perf_pct=90` — Intel pstate maximum performance cap:
+  [`ansible/optimizations/p_states.yml`](ansible/optimizations/p_states.yml)
+- `cpu_governor=powersave` — CPU frequency governor:
+  [`ansible/optimizations/cpu_governor.yml`](ansible/optimizations/cpu_governor.yml)
+- `gpu_power_profile=low` — GPU runtime power management:
+  [`ansible/optimizations/gpu_power.yml`](ansible/optimizations/gpu_power.yml)
+
+### AMD combined stacks
+
+All AMD stacks use the `amd` sweep profile. AMD has no `intel_pstate` EPP or
+`max_perf_pct`; the 5th knob is `gpu_power_profile=low` instead. Kernel-param
+variants require a reboot.
+
+| # | Label | Knobs changed | Reboot | Rationale |
+|---|-------|---------------|--------|-----------|
+| 1 | `combined=mitigations+nokaslr+turbo_off+pcie_aspm+governor_powersave` | `mitigations=off` + `nokaslr` + `turbo=off` + `pcie_aspm=powersave` + `cpu_governor=powersave` | yes | Full AMD stack: kernel + turbo + ASPM + governor. No GPU power to keep the test focused on CPU/PCIe. |
+| 2 | `combined=mitigations+nokaslr+turbo_off+pcie_aspm+gpu_low` | `mitigations=off` + `nokaslr` + `turbo=off` + `pcie_aspm=powersave` + `gpu_power_profile=low` | yes | Swaps governor for GPU power — tests whether GPU adds idle savings on top of the CPU/PCIe stack. |
+| 3 | `combined=mitigations+nokaslr+turbo_off+governor_powersave+gpu_low` | `mitigations=off` + `nokaslr` + `turbo=off` + `cpu_governor=powersave` + `gpu_power_profile=low` | yes | Drops PCIe ASPM to isolate kernel + turbo + governor + GPU interaction. |
+| 4 | `combined=mitigations+nokaslr+pcie_aspm+governor_powersave+gpu_low` | `mitigations=off` + `nokaslr` + `pcie_aspm=powersave` + `cpu_governor=powersave` + `gpu_power_profile=low` | yes | Drops turbo to measure the remaining four knobs without boost control. |
+| 5 | `combined=all_five` | `mitigations=off` + `nokaslr` + `turbo=off` + `pcie_aspm=powersave` + `cpu_governor=powersave` + `gpu_power_profile=low` | yes | Maximum overlap on AMD: all six knobs together. |
+| 6 | `combined=turbo_off+pcie_aspm+governor_powersave+gpu_low` | `turbo=off` + `pcie_aspm=powersave` + `cpu_governor=powersave` + `gpu_power_profile=low` | no | Production-safe (no kernel params). Four runtime knobs — heaviest AMD stack deployable without reboot. |
+| 7 | `combined=turbo_off+pcie_aspm+governor_powersave` | `turbo=off` + `pcie_aspm=powersave` + `cpu_governor=powersave` | no | Minimal production stack: turbo + ASPM + governor. No GPU, no kernel params. |
+| 8 | `combined=turbo_off+governor_powersave+gpu_low` | `turbo=off` + `cpu_governor=powersave` + `gpu_power_profile=low` | no | Drops PCIe ASPM to test CPU + GPU stack alone in production. |
+
+AMD knob details:
+- `turbo=off` — `cpufreq/boost=0` (AMD acpi-cpufreq):
+  [`ansible/optimizations/turbo_boost.yml`](ansible/optimizations/turbo_boost.yml)
+- `cpu_governor=powersave`:
+  [`ansible/optimizations/cpu_governor.yml`](ansible/optimizations/cpu_governor.yml)
+- `pcie_aspm=powersave`:
+  [`ansible/optimizations/pcie_aspm.yml`](ansible/optimizations/pcie_aspm.yml)
+- `gpu_power_profile=low`:
+  [`ansible/optimizations/gpu_power.yml`](ansible/optimizations/gpu_power.yml)
+- `mitigations=off` + `nokaslr` — kernel boot params:
+  [`ansible/optimizations/kernel_params.yml`](ansible/optimizations/kernel_params.yml)
+
+### How to run a combined stack
+
+List all combined variants for a host:
+
+```bash
+python run_suite.py node2 --list --sweep core  # Intel
+python run_suite.py node2 --list --sweep amd   # AMD
+```
+
+Run a specific combined stack (3 repeats by default):
+
+```bash
+python run_suite.py node2 --only combined=all_five \
+  --mac <MAC> --checksum-policy warn --cool-to 55
+```
+
+Or do a dry run first:
+
+```bash
+python run_suite.py node2 --only combined=all_five --dry-run
+```

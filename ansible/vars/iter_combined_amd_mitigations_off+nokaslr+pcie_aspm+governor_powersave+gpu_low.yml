@@ -1,0 +1,6 @@
+# Combined: mitigations=off+nokaslr + pcie_aspm=powersave + cpu_governor=powersave + gpu_power_profile=low
+# AMD top-5 non-overlapping optimizations stacked (turbo=off omitted)
+kernel_params: [mitigations=off, nokaslr]
+pcie_aspm_policy: powersave
+cpu_governor: powersave
+gpu_power_profile: low

@@ -1,0 +1,7 @@
+# Combined: mitigations=off+nokaslr + turbo=off + pcie_aspm=powersave + max_perf_pct=90 + cpu_governor=powersave
+# Intel top-5 non-overlapping optimizations — all stacked
+kernel_params: [mitigations=off, nokaslr]
+turbo_enabled: false
+pcie_aspm_policy: powersave
+pstate_max_perf_pct: 90
+cpu_governor: powersave

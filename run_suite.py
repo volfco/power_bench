@@ -163,6 +163,59 @@ EXPERIMENTS = [
     ("kernel_params=mitigations_off+nokaslr", {
         "kernel_params": ["mitigations=off", "nokaslr"],
     }, "both"),
+
+    # Phase D: top-5 non-overlapping optimizations combined (Intel).
+    # Winners from results: mitigations=off+nokaslr (kernel), turbo=off (boost),
+    #   pcie_aspm=powersave (idle), max_perf_pct=90 (pstate), cpu_governor=powersave.
+    # Each targets a different subsystem; effects should be additive.
+    ("combined=mitigations+nokaslr+turbo_off+pcie_aspm+pstate90", {
+        "kernel_params": ["mitigations=off", "nokaslr"],
+        "turbo_enabled": False,
+        "pcie_aspm_policy": "powersave",
+        "pstate_max_perf_pct": 90,
+    }, "both"),
+    ("combined=mitigations+nokaslr+turbo_off+pcie_aspm+governor_powersave", {
+        "kernel_params": ["mitigations=off", "nokaslr"],
+        "turbo_enabled": False,
+        "pcie_aspm_policy": "powersave",
+        "cpu_governor": "powersave",
+    }, "both"),
+    ("combined=mitigations+nokaslr+turbo_off+pstate90+governor_powersave", {
+        "kernel_params": ["mitigations=off", "nokaslr"],
+        "turbo_enabled": False,
+        "pstate_max_perf_pct": 90,
+        "cpu_governor": "powersave",
+    }, "both"),
+    ("combined=mitigations+nokaslr+turbo_off+pcie_aspm", {
+        "kernel_params": ["mitigations=off", "nokaslr"],
+        "turbo_enabled": False,
+        "pcie_aspm_policy": "powersave",
+    }, "both"),
+    ("combined=all_five", {
+        "kernel_params": ["mitigations=off", "nokaslr"],
+        "turbo_enabled": False,
+        "pcie_aspm_policy": "powersave",
+        "pstate_max_perf_pct": 90,
+        "cpu_governor": "powersave",
+    }, "both"),
+    # Additional Intel stacks: no kernel params, production-safe combos.
+    ("combined=turbo_off+pcie_aspm+pstate90+governor_powersave", {
+        "turbo_enabled": False,
+        "pcie_aspm_policy": "powersave",
+        "pstate_max_perf_pct": 90,
+        "cpu_governor": "powersave",
+    }, "both"),
+    ("combined=turbo_off+pcie_aspm+pstate90", {
+        "turbo_enabled": False,
+        "pcie_aspm_policy": "powersave",
+        "pstate_max_perf_pct": 90,
+    }, "both"),
+    ("combined=turbo_off+governor_powersave+pcie_aspm+gpu_low", {
+        "turbo_enabled": False,
+        "cpu_governor": "powersave",
+        "pcie_aspm_policy": "powersave",
+        "gpu_power_profile": "low",
+    }, "both"),
 ]
 
 # AMD/acpi-cpufreq catalog. Keep this separate from EXPERIMENTS: the Intel catalog
@@ -205,6 +258,59 @@ AMD_EXPERIMENTS = [
     ("kernel_params=nokaslr", {"kernel_params": ["nokaslr"]}, "both"),
     ("kernel_params=mitigations_off+nokaslr", {
         "kernel_params": ["mitigations=off", "nokaslr"],
+    }, "both"),
+
+    # Phase D: top-5 non-overlapping optimizations combined (AMD).
+    # AMD has no intel_pstate; substitute gpu_power_profile=low for the 5th knob.
+    # Winners: mitigations=off+nokaslr (kernel), turbo=off (boost),
+    #   pcie_aspm=powersave (idle), cpu_governor=powersave (governor), gpu=low (GPU).
+    ("combined=mitigations+nokaslr+turbo_off+pcie_aspm+governor_powersave", {
+        "kernel_params": ["mitigations=off", "nokaslr"],
+        "turbo_enabled": False,
+        "pcie_aspm_policy": "powersave",
+        "cpu_governor": "powersave",
+    }, "both"),
+    ("combined=mitigations+nokaslr+turbo_off+pcie_aspm+gpu_low", {
+        "kernel_params": ["mitigations=off", "nokaslr"],
+        "turbo_enabled": False,
+        "pcie_aspm_policy": "powersave",
+        "gpu_power_profile": "low",
+    }, "both"),
+    ("combined=mitigations+nokaslr+turbo_off+governor_powersave+gpu_low", {
+        "kernel_params": ["mitigations=off", "nokaslr"],
+        "turbo_enabled": False,
+        "cpu_governor": "powersave",
+        "gpu_power_profile": "low",
+    }, "both"),
+    ("combined=mitigations+nokaslr+pcie_aspm+governor_powersave+gpu_low", {
+        "kernel_params": ["mitigations=off", "nokaslr"],
+        "pcie_aspm_policy": "powersave",
+        "cpu_governor": "powersave",
+        "gpu_power_profile": "low",
+    }, "both"),
+    ("combined=all_five", {
+        "kernel_params": ["mitigations=off", "nokaslr"],
+        "turbo_enabled": False,
+        "pcie_aspm_policy": "powersave",
+        "cpu_governor": "powersave",
+        "gpu_power_profile": "low",
+    }, "both"),
+    # Additional AMD stacks: no kernel params, production-safe combos.
+    ("combined=turbo_off+pcie_aspm+governor_powersave+gpu_low", {
+        "turbo_enabled": False,
+        "pcie_aspm_policy": "powersave",
+        "cpu_governor": "powersave",
+        "gpu_power_profile": "low",
+    }, "both"),
+    ("combined=turbo_off+pcie_aspm+governor_powersave", {
+        "turbo_enabled": False,
+        "pcie_aspm_policy": "powersave",
+        "cpu_governor": "powersave",
+    }, "both"),
+    ("combined=turbo_off+governor_powersave+gpu_low", {
+        "turbo_enabled": False,
+        "cpu_governor": "powersave",
+        "gpu_power_profile": "low",
     }, "both"),
 ]
 
