@@ -1,0 +1,668 @@
+<?xml version="1.0"?>
+<!--Phoronix Test Suite v10.8.4-->
+<PhoronixTestSuite>
+  <Generated>
+    <Title>power_bench_node2_5bf9a721062f</Title>
+    <LastModified>2026-07-20 14:31:15</LastModified>
+    <TestClient>Phoronix Test Suite v10.8.4</TestClient>
+    <Description>power_bench automated run</Description>
+  </Generated>
+  <System>
+    <Identifier>power_bench_node2_5bf9a721062f</Identifier>
+    <Hardware>Processor: AMD PRO A10-8770E R7 10 COMPUTE CORES 4C+6G @ 2.80GHz (8 Cores), Motherboard: LENOVO 3130 (M1XKT50A BIOS), Chipset: AMD 15h, Memory: 30GB, Disk: 256GB SanDisk SD8SN8U2, Graphics: llvmpipe, Audio: AMD Kabini HDMI/DP, Network: Realtek RTL8111/8168/8211/8411</Hardware>
+    <Software>OS: Ubuntu 26.04, Kernel: 7.0.0-27-generic (x86_64), OpenGL: 4.5 Mesa 26.0.3-1ubuntu1 (LLVM 21.1.8 256 bits), Compiler: GCC 15.2.0 + Clang 21.1.8 + LLVM 21.1.8, File-System: ext4, Screen Resolution: 1920x1080</Software>
+    <User>metrolla</User>
+    <TimeStamp>2026-07-20 12:14:10</TimeStamp>
+    <TestClientVersion>10.8.4</TestClientVersion>
+    <Notes></Notes>
+    <JSON>{"cpu-scaling-governor":"acpi-cpufreq schedutil (Boost: Enabled)","cpu-microcode":"0x600611a","kernel-extra-details":"Transparent Huge Pages: madvise","python":"Python 3.14.4","security":"gather_data_sampling: Not affected + ghostwrite: Not affected + indirect_target_selection: Not affected + itlb_multihit: Not affected + l1tf: Not affected + mds: Not affected + meltdown: Not affected + mmio_stale_data: Not affected + old_microcode: Not affected + reg_file_data_sampling: Not affected + retbleed: Vulnerable + spec_rstack_overflow: Not affected + spec_store_bypass: Vulnerable + spectre_v1: Vulnerable: __user pointer sanitization and usercopy barriers only; no swapgs barriers + spectre_v2: Vulnerable; IBPB: disabled; STIBP: disabled; PBRSB-eIBRS: Not affected; BHI: Not affected + srbds: Not affected + tsa: Not affected + tsx_async_abort: Not affected + vmscape: Not affected"}</JSON>
+  </System>
+  <Result>
+    <Identifier>system/selenium-1.0.49</Identifier>
+    <Title>Selenium</Title>
+    <AppVersion></AppVersion>
+    <Arguments>ares6 Firefox</Arguments>
+    <Description>Benchmark: ARES-6 - Browser: Firefox</Description>
+    <Scale>ms</Scale>
+    <Proportion>LIB</Proportion>
+    <DisplayFormat>BAR_GRAPH</DisplayFormat>
+    <Data>
+      <Entry>
+        <Identifier>power_bench_node2_5bf9a721062f</Identifier>
+        <Value>40.66</Value>
+        <RawString></RawString>
+        <JSON>{"install-footnote":"firefox 152.0.6","test-run-times":"139.71"}</JSON>
+      </Entry>
+    </Data>
+  </Result>
+  <Result>
+    <Identifier>system/selenium-1.0.49</Identifier>
+    <Title>Selenium</Title>
+    <AppVersion></AppVersion>
+    <Arguments>kraken Firefox</Arguments>
+    <Description>Benchmark: Kraken - Browser: Firefox</Description>
+    <Scale>Score</Scale>
+    <Proportion>HIB</Proportion>
+    <DisplayFormat>BAR_GRAPH</DisplayFormat>
+    <Data>
+      <Entry>
+        <Identifier>power_bench_node2_5bf9a721062f</Identifier>
+        <Value></Value>
+        <RawString></RawString>
+        <JSON>{"install-footnote":"firefox 152.0.6","test-run-times":"17.79","error":"The test quit with a non-zero exit status. E: NameError: name 'StaleElementReferenceException' is not defined"}</JSON>
+      </Entry>
+    </Data>
+  </Result>
+  <Result>
+    <Identifier>system/selenium-1.0.49</Identifier>
+    <Title>Selenium</Title>
+    <AppVersion></AppVersion>
+    <Arguments>octane Firefox</Arguments>
+    <Description>Benchmark: Octane - Browser: Firefox</Description>
+    <Scale>Score</Scale>
+    <Proportion>HIB</Proportion>
+    <DisplayFormat>BAR_GRAPH</DisplayFormat>
+    <Data>
+      <Entry>
+        <Identifier>power_bench_node2_5bf9a721062f</Identifier>
+        <Value></Value>
+        <RawString></RawString>
+        <JSON>{"install-footnote":"firefox 152.0.6","test-run-times":"22.60","error":"The test quit with a non-zero exit status. E: NameError: name 'StaleElementReferenceException' is not defined"}</JSON>
+      </Entry>
+    </Data>
+  </Result>
+  <Result>
+    <Identifier>system/selenium-1.0.49</Identifier>
+    <Title>Selenium</Title>
+    <AppVersion></AppVersion>
+    <Arguments>webxprt Firefox</Arguments>
+    <Description>Benchmark: WebXPRT - Browser: Firefox</Description>
+    <Scale>Score</Scale>
+    <Proportion>HIB</Proportion>
+    <DisplayFormat>BAR_GRAPH</DisplayFormat>
+    <Data>
+      <Entry>
+        <Identifier>power_bench_node2_5bf9a721062f</Identifier>
+        <Value></Value>
+        <RawString></RawString>
+        <JSON>{"install-footnote":"firefox 152.0.6","test-run-times":"150.04","error":"The test quit with a non-zero exit status. E: selenium.common.exceptions.WebDriverException: Message: AbortError: Actor 'MarionetteCommands' destroyed before query 'MarionetteCommandsParent:findElement' was resolved"}</JSON>
+      </Entry>
+    </Data>
+  </Result>
+  <Result>
+    <Identifier>system/selenium-1.0.49</Identifier>
+    <Title>Selenium</Title>
+    <AppVersion></AppVersion>
+    <Arguments>basemark Firefox</Arguments>
+    <Description>Benchmark: Basemark - Browser: Firefox</Description>
+    <Scale>Score</Scale>
+    <Proportion>HIB</Proportion>
+    <DisplayFormat>BAR_GRAPH</DisplayFormat>
+    <Data>
+      <Entry>
+        <Identifier>power_bench_node2_5bf9a721062f</Identifier>
+        <Value></Value>
+        <RawString></RawString>
+        <JSON>{"install-footnote":"firefox 152.0.6","test-run-times":"2046.64","error":"The test quit with a non-zero exit status. E: ERROR: test_untitled_test_case (__main__.UntitledTestCase.test_untitled_test_case)"}</JSON>
+      </Entry>
+    </Data>
+  </Result>
+  <Result>
+    <Identifier>system/selenium-1.0.49</Identifier>
+    <Title>Selenium</Title>
+    <AppVersion></AppVersion>
+    <Arguments>jetstream Firefox</Arguments>
+    <Description>Benchmark: Jetstream - Browser: Firefox</Description>
+    <Scale>Score</Scale>
+    <Proportion>HIB</Proportion>
+    <DisplayFormat>BAR_GRAPH</DisplayFormat>
+    <Data>
+      <Entry>
+        <Identifier>power_bench_node2_5bf9a721062f</Identifier>
+        <Value>127.03</Value>
+        <RawString></RawString>
+        <JSON>{"install-footnote":"firefox 152.0.6","test-run-times":"230.09"}</JSON>
+      </Entry>
+    </Data>
+  </Result>
+  <Result>
+    <Identifier>system/selenium-1.0.49</Identifier>
+    <Title>Selenium</Title>
+    <AppVersion></AppVersion>
+    <Arguments>canvasmark Firefox</Arguments>
+    <Description>Benchmark: CanvasMark - Browser: Firefox</Description>
+    <Scale>Score</Scale>
+    <Proportion>HIB</Proportion>
+    <DisplayFormat>BAR_GRAPH</DisplayFormat>
+    <Data>
+      <Entry>
+        <Identifier>power_bench_node2_5bf9a721062f</Identifier>
+        <Value></Value>
+        <RawString></RawString>
+        <JSON>{"install-footnote":"firefox 152.0.6","test-run-times":"23.81","error":"The test quit with a non-zero exit status. E: NameError: name 'StaleElementReferenceException' is not defined"}</JSON>
+      </Entry>
+    </Data>
+  </Result>
+  <Result>
+    <Identifier>system/selenium-1.0.49</Identifier>
+    <Title>Selenium</Title>
+    <AppVersion></AppVersion>
+    <Arguments>motionmark Firefox</Arguments>
+    <Description>Benchmark: MotionMark - Browser: Firefox</Description>
+    <Scale>Score</Scale>
+    <Proportion>HIB</Proportion>
+    <DisplayFormat>BAR_GRAPH</DisplayFormat>
+    <Data>
+      <Entry>
+        <Identifier>power_bench_node2_5bf9a721062f</Identifier>
+        <Value></Value>
+        <RawString></RawString>
+        <JSON>{"install-footnote":"firefox 152.0.6","test-run-times":"18.89","error":"The test quit with a non-zero exit status. E: NameError: name 'StaleElementReferenceException' is not defined"}</JSON>
+      </Entry>
+    </Data>
+  </Result>
+  <Result>
+    <Identifier>system/selenium-1.0.49</Identifier>
+    <Title>Selenium</Title>
+    <AppVersion></AppVersion>
+    <Arguments>stylebench Firefox</Arguments>
+    <Description>Benchmark: StyleBench - Browser: Firefox</Description>
+    <Scale>Score</Scale>
+    <Proportion>HIB</Proportion>
+    <DisplayFormat>BAR_GRAPH</DisplayFormat>
+    <Data>
+      <Entry>
+        <Identifier>power_bench_node2_5bf9a721062f</Identifier>
+        <Value></Value>
+        <RawString></RawString>
+        <JSON>{"install-footnote":"firefox 152.0.6","test-run-times":"16.83","error":"The test quit with a non-zero exit status. E: NameError: name 'StaleElementReferenceException' is not defined"}</JSON>
+      </Entry>
+    </Data>
+  </Result>
+  <Result>
+    <Identifier>system/selenium-1.0.49</Identifier>
+    <Title>Selenium</Title>
+    <AppVersion></AppVersion>
+    <Arguments>jetstream2 Firefox</Arguments>
+    <Description>Benchmark: Jetstream 2 - Browser: Firefox</Description>
+    <Scale>Score</Scale>
+    <Proportion>HIB</Proportion>
+    <DisplayFormat>BAR_GRAPH</DisplayFormat>
+    <Data>
+      <Entry>
+        <Identifier>power_bench_node2_5bf9a721062f</Identifier>
+        <Value></Value>
+        <RawString></RawString>
+        <JSON>{"install-footnote":"firefox 152.0.6","test-run-times":"24.51","error":"The test quit with a non-zero exit status. E: NameError: name 'StaleElementReferenceException' is not defined"}</JSON>
+      </Entry>
+    </Data>
+  </Result>
+  <Result>
+    <Identifier>system/selenium-1.0.49</Identifier>
+    <Title>Selenium</Title>
+    <AppVersion></AppVersion>
+    <Arguments>jetstream3 Firefox</Arguments>
+    <Description>Benchmark: Jetstream 3 - Browser: Firefox</Description>
+    <Scale>Score</Scale>
+    <Proportion>HIB</Proportion>
+    <DisplayFormat>BAR_GRAPH</DisplayFormat>
+    <Data>
+      <Entry>
+        <Identifier>power_bench_node2_5bf9a721062f</Identifier>
+        <Value></Value>
+        <RawString></RawString>
+        <JSON>{"install-footnote":"firefox 152.0.6","test-run-times":"51.70","error":"The test quit with a non-zero exit status. E: NameError: name 'StaleElementReferenceException' is not defined"}</JSON>
+      </Entry>
+    </Data>
+  </Result>
+  <Result>
+    <Identifier>system/selenium-1.0.49</Identifier>
+    <Title>Selenium</Title>
+    <AppVersion></AppVersion>
+    <Arguments>silverbench Firefox</Arguments>
+    <Description>Benchmark: SilverBench - Browser: Firefox</Description>
+    <Scale>Score</Scale>
+    <Proportion>HIB</Proportion>
+    <DisplayFormat>BAR_GRAPH</DisplayFormat>
+    <Data>
+      <Entry>
+        <Identifier>power_bench_node2_5bf9a721062f</Identifier>
+        <Value>1173</Value>
+        <RawString></RawString>
+        <JSON>{"install-footnote":"firefox 152.0.6","test-run-times":"1285.82"}</JSON>
+      </Entry>
+    </Data>
+  </Result>
+  <Result>
+    <Identifier>system/selenium-1.0.49</Identifier>
+    <Title>Selenium</Title>
+    <AppVersion></AppVersion>
+    <Arguments>speedometer Firefox</Arguments>
+    <Description>Benchmark: Speedometer - Browser: Firefox</Description>
+    <Scale>Runs Per Minute</Scale>
+    <Proportion>HIB</Proportion>
+    <DisplayFormat>BAR_GRAPH</DisplayFormat>
+    <Data>
+      <Entry>
+        <Identifier>power_bench_node2_5bf9a721062f</Identifier>
+        <Value>80.2</Value>
+        <RawString></RawString>
+        <JSON>{"install-footnote":"firefox 152.0.6","test-run-times":"103.56"}</JSON>
+      </Entry>
+    </Data>
+  </Result>
+  <Result>
+    <Identifier>system/selenium-1.0.49</Identifier>
+    <Title>Selenium</Title>
+    <AppVersion></AppVersion>
+    <Arguments>ares6 Chrome</Arguments>
+    <Description>Benchmark: ARES-6 - Browser: Google Chrome</Description>
+    <Scale>ms</Scale>
+    <Proportion>LIB</Proportion>
+    <DisplayFormat>BAR_GRAPH</DisplayFormat>
+    <Data>
+      <Entry>
+        <Identifier>power_bench_node2_5bf9a721062f</Identifier>
+        <Value>27.15</Value>
+        <RawString></RawString>
+        <JSON>{"install-footnote":"chrome 150.0.7871.128","test-run-times":"67.42"}</JSON>
+      </Entry>
+    </Data>
+  </Result>
+  <Result>
+    <Identifier>system/selenium-1.0.49</Identifier>
+    <Title>Selenium</Title>
+    <AppVersion></AppVersion>
+    <Arguments>kraken Chrome</Arguments>
+    <Description>Benchmark: Kraken - Browser: Google Chrome</Description>
+    <Scale>Score</Scale>
+    <Proportion>HIB</Proportion>
+    <DisplayFormat>BAR_GRAPH</DisplayFormat>
+    <Data>
+      <Entry>
+        <Identifier>power_bench_node2_5bf9a721062f</Identifier>
+        <Value></Value>
+        <RawString></RawString>
+        <JSON>{"install-footnote":"chrome 150.0.7871.128","test-run-times":"10.57","error":"The test quit with a non-zero exit status. E: NameError: name 'StaleElementReferenceException' is not defined"}</JSON>
+      </Entry>
+    </Data>
+  </Result>
+  <Result>
+    <Identifier>system/selenium-1.0.49</Identifier>
+    <Title>Selenium</Title>
+    <AppVersion></AppVersion>
+    <Arguments>octane Chrome</Arguments>
+    <Description>Benchmark: Octane - Browser: Google Chrome</Description>
+    <Scale>Score</Scale>
+    <Proportion>HIB</Proportion>
+    <DisplayFormat>BAR_GRAPH</DisplayFormat>
+    <Data>
+      <Entry>
+        <Identifier>power_bench_node2_5bf9a721062f</Identifier>
+        <Value></Value>
+        <RawString></RawString>
+        <JSON>{"install-footnote":"chrome 150.0.7871.128","test-run-times":"10.59","error":"The test quit with a non-zero exit status. E: NameError: name 'StaleElementReferenceException' is not defined"}</JSON>
+      </Entry>
+    </Data>
+  </Result>
+  <Result>
+    <Identifier>system/selenium-1.0.49</Identifier>
+    <Title>Selenium</Title>
+    <AppVersion></AppVersion>
+    <Arguments>pspdfkit Firefox</Arguments>
+    <Description>Benchmark: PSPDFKit WASM - Browser: Firefox</Description>
+    <Scale>Score</Scale>
+    <Proportion>HIB</Proportion>
+    <DisplayFormat>BAR_GRAPH</DisplayFormat>
+    <Data>
+      <Entry>
+        <Identifier>power_bench_node2_5bf9a721062f</Identifier>
+        <Value></Value>
+        <RawString></RawString>
+        <JSON>{"install-footnote":"chrome 150.0.7871.128","test-run-times":"19.27","error":"The test quit with a non-zero exit status. E: NameError: name 'StaleElementReferenceException' is not defined"}</JSON>
+      </Entry>
+    </Data>
+  </Result>
+  <Result>
+    <Identifier>system/selenium-1.0.49</Identifier>
+    <Title>Selenium</Title>
+    <AppVersion></AppVersion>
+    <Arguments>webxprt Chrome</Arguments>
+    <Description>Benchmark: WebXPRT - Browser: Google Chrome</Description>
+    <Scale>Score</Scale>
+    <Proportion>HIB</Proportion>
+    <DisplayFormat>BAR_GRAPH</DisplayFormat>
+    <Data>
+      <Entry>
+        <Identifier>power_bench_node2_5bf9a721062f</Identifier>
+        <Value>133</Value>
+        <RawString></RawString>
+        <JSON>{"install-footnote":"chrome 150.0.7871.128","test-run-times":"569.63"}</JSON>
+      </Entry>
+    </Data>
+  </Result>
+  <Result>
+    <Identifier>system/selenium-1.0.49</Identifier>
+    <Title>Selenium</Title>
+    <AppVersion></AppVersion>
+    <Arguments>basemark Chrome</Arguments>
+    <Description>Benchmark: Basemark - Browser: Google Chrome</Description>
+    <Scale>Score</Scale>
+    <Proportion>HIB</Proportion>
+    <DisplayFormat>BAR_GRAPH</DisplayFormat>
+    <Data>
+      <Entry>
+        <Identifier>power_bench_node2_5bf9a721062f</Identifier>
+        <Value></Value>
+        <RawString></RawString>
+        <JSON>{"install-footnote":"chrome 150.0.7871.128","test-run-times":"2030.13","error":"The test quit with a non-zero exit status. E: ERROR: test_untitled_test_case (__main__.UntitledTestCase.test_untitled_test_case)"}</JSON>
+      </Entry>
+    </Data>
+  </Result>
+  <Result>
+    <Identifier>system/selenium-1.0.49</Identifier>
+    <Title>Selenium</Title>
+    <AppVersion></AppVersion>
+    <Arguments>jetstream Chrome</Arguments>
+    <Description>Benchmark: Jetstream - Browser: Google Chrome</Description>
+    <Scale>Score</Scale>
+    <Proportion>HIB</Proportion>
+    <DisplayFormat>BAR_GRAPH</DisplayFormat>
+    <Data>
+      <Entry>
+        <Identifier>power_bench_node2_5bf9a721062f</Identifier>
+        <Value>154.63</Value>
+        <RawString></RawString>
+        <JSON>{"install-footnote":"chrome 150.0.7871.128","test-run-times":"206.17"}</JSON>
+      </Entry>
+    </Data>
+  </Result>
+  <Result>
+    <Identifier>system/selenium-1.0.49</Identifier>
+    <Title>Selenium</Title>
+    <AppVersion></AppVersion>
+    <Arguments>speedometer3 Firefox</Arguments>
+    <Description>Benchmark: Speedometer 3.0 - Browser: Firefox</Description>
+    <Scale>Score</Scale>
+    <Proportion>HIB</Proportion>
+    <DisplayFormat>BAR_GRAPH</DisplayFormat>
+    <Data>
+      <Entry>
+        <Identifier>power_bench_node2_5bf9a721062f</Identifier>
+        <Value>5.4</Value>
+        <RawString></RawString>
+        <JSON>{"install-footnote":"firefox 152.0.6","test-run-times":"123.61"}</JSON>
+      </Entry>
+    </Data>
+  </Result>
+  <Result>
+    <Identifier>system/selenium-1.0.49</Identifier>
+    <Title>Selenium</Title>
+    <AppVersion></AppVersion>
+    <Arguments>speedometer31 Firefox</Arguments>
+    <Description>Benchmark: Speedometer 3.1 - Browser: Firefox</Description>
+    <Scale>Score</Scale>
+    <Proportion>HIB</Proportion>
+    <DisplayFormat>BAR_GRAPH</DisplayFormat>
+    <Data>
+      <Entry>
+        <Identifier>power_bench_node2_5bf9a721062f</Identifier>
+        <Value>5.24</Value>
+        <RawString></RawString>
+        <JSON>{"install-footnote":"firefox 152.0.6","test-run-times":"126.39"}</JSON>
+      </Entry>
+    </Data>
+  </Result>
+  <Result>
+    <Identifier>system/selenium-1.0.49</Identifier>
+    <Title>Selenium</Title>
+    <AppVersion></AppVersion>
+    <Arguments>canvasmark Chrome</Arguments>
+    <Description>Benchmark: CanvasMark - Browser: Google Chrome</Description>
+    <Scale>Score</Scale>
+    <Proportion>HIB</Proportion>
+    <DisplayFormat>BAR_GRAPH</DisplayFormat>
+    <Data>
+      <Entry>
+        <Identifier>power_bench_node2_5bf9a721062f</Identifier>
+        <Value></Value>
+        <RawString></RawString>
+        <JSON>{"install-footnote":"firefox 152.0.6","test-run-times":"16.66","error":"The test quit with a non-zero exit status. E: NameError: name 'StaleElementReferenceException' is not defined"}</JSON>
+      </Entry>
+    </Data>
+  </Result>
+  <Result>
+    <Identifier>system/selenium-1.0.49</Identifier>
+    <Title>Selenium</Title>
+    <AppVersion></AppVersion>
+    <Arguments>motionmark Chrome</Arguments>
+    <Description>Benchmark: MotionMark - Browser: Google Chrome</Description>
+    <Scale>Score</Scale>
+    <Proportion>HIB</Proportion>
+    <DisplayFormat>BAR_GRAPH</DisplayFormat>
+    <Data>
+      <Entry>
+        <Identifier>power_bench_node2_5bf9a721062f</Identifier>
+        <Value></Value>
+        <RawString></RawString>
+        <JSON>{"install-footnote":"firefox 152.0.6","test-run-times":"11.55","error":"The test quit with a non-zero exit status. E: NameError: name 'StaleElementReferenceException' is not defined"}</JSON>
+      </Entry>
+    </Data>
+  </Result>
+  <Result>
+    <Identifier>system/selenium-1.0.49</Identifier>
+    <Title>Selenium</Title>
+    <AppVersion></AppVersion>
+    <Arguments>stylebench Chrome</Arguments>
+    <Description>Benchmark: StyleBench - Browser: Google Chrome</Description>
+    <Scale>Score</Scale>
+    <Proportion>HIB</Proportion>
+    <DisplayFormat>BAR_GRAPH</DisplayFormat>
+    <Data>
+      <Entry>
+        <Identifier>power_bench_node2_5bf9a721062f</Identifier>
+        <Value></Value>
+        <RawString></RawString>
+        <JSON>{"install-footnote":"firefox 152.0.6","test-run-times":"9.53","error":"The test quit with a non-zero exit status. E: NameError: name 'StaleElementReferenceException' is not defined"}</JSON>
+      </Entry>
+    </Data>
+  </Result>
+  <Result>
+    <Identifier>system/selenium-1.0.49</Identifier>
+    <Title>Selenium</Title>
+    <AppVersion></AppVersion>
+    <Arguments>jetstream2 Chrome</Arguments>
+    <Description>Benchmark: Jetstream 2 - Browser: Google Chrome</Description>
+    <Scale>Score</Scale>
+    <Proportion>HIB</Proportion>
+    <DisplayFormat>BAR_GRAPH</DisplayFormat>
+    <Data>
+      <Entry>
+        <Identifier>power_bench_node2_5bf9a721062f</Identifier>
+        <Value></Value>
+        <RawString></RawString>
+        <JSON>{"install-footnote":"firefox 152.0.6","test-run-times":"9.93","error":"The test quit with a non-zero exit status. E: NameError: name 'StaleElementReferenceException' is not defined"}</JSON>
+      </Entry>
+    </Data>
+  </Result>
+  <Result>
+    <Identifier>system/selenium-1.0.49</Identifier>
+    <Title>Selenium</Title>
+    <AppVersion></AppVersion>
+    <Arguments>jetstream3 Chrome</Arguments>
+    <Description>Benchmark: Jetstream 3 - Browser: Google Chrome</Description>
+    <Scale>Score</Scale>
+    <Proportion>HIB</Proportion>
+    <DisplayFormat>BAR_GRAPH</DisplayFormat>
+    <Data>
+      <Entry>
+        <Identifier>power_bench_node2_5bf9a721062f</Identifier>
+        <Value></Value>
+        <RawString></RawString>
+        <JSON>{"install-footnote":"firefox 152.0.6","test-run-times":"40.43","error":"The test quit with a non-zero exit status. E: NameError: name 'StaleElementReferenceException' is not defined"}</JSON>
+      </Entry>
+    </Data>
+  </Result>
+  <Result>
+    <Identifier>system/selenium-1.0.49</Identifier>
+    <Title>Selenium</Title>
+    <AppVersion></AppVersion>
+    <Arguments>silverbench Chrome</Arguments>
+    <Description>Benchmark: SilverBench - Browser: Google Chrome</Description>
+    <Scale>Score</Scale>
+    <Proportion>HIB</Proportion>
+    <DisplayFormat>BAR_GRAPH</DisplayFormat>
+    <Data>
+      <Entry>
+        <Identifier>power_bench_node2_5bf9a721062f</Identifier>
+        <Value>10364</Value>
+        <RawString></RawString>
+        <JSON>{"install-footnote":"chrome 150.0.7871.128","test-run-times":"157.67"}</JSON>
+      </Entry>
+    </Data>
+  </Result>
+  <Result>
+    <Identifier>system/selenium-1.0.49</Identifier>
+    <Title>Selenium</Title>
+    <AppVersion></AppVersion>
+    <Arguments>speedometer Chrome</Arguments>
+    <Description>Benchmark: Speedometer - Browser: Google Chrome</Description>
+    <Scale>Runs Per Minute</Scale>
+    <Proportion>HIB</Proportion>
+    <DisplayFormat>BAR_GRAPH</DisplayFormat>
+    <Data>
+      <Entry>
+        <Identifier>power_bench_node2_5bf9a721062f</Identifier>
+        <Value>94.1</Value>
+        <RawString></RawString>
+        <JSON>{"install-footnote":"chrome 150.0.7871.128","test-run-times":"76.65"}</JSON>
+      </Entry>
+    </Data>
+  </Result>
+  <Result>
+    <Identifier>system/selenium-1.0.49</Identifier>
+    <Title>Selenium</Title>
+    <AppVersion></AppVersion>
+    <Arguments>pspdfkit Chrome</Arguments>
+    <Description>Benchmark: PSPDFKit WASM - Browser: Google Chrome</Description>
+    <Scale>Score</Scale>
+    <Proportion>HIB</Proportion>
+    <DisplayFormat>BAR_GRAPH</DisplayFormat>
+    <Data>
+      <Entry>
+        <Identifier>power_bench_node2_5bf9a721062f</Identifier>
+        <Value></Value>
+        <RawString></RawString>
+        <JSON>{"install-footnote":"chrome 150.0.7871.128","test-run-times":"11.07","error":"The test quit with a non-zero exit status. E: NameError: name 'StaleElementReferenceException' is not defined"}</JSON>
+      </Entry>
+    </Data>
+  </Result>
+  <Result>
+    <Identifier>system/selenium-1.0.49</Identifier>
+    <Title>Selenium</Title>
+    <AppVersion></AppVersion>
+    <Arguments>wasmconvolute Firefox</Arguments>
+    <Description>Benchmark: WASM imageConvolute - Browser: Firefox</Description>
+    <Scale>Score</Scale>
+    <Proportion>HIB</Proportion>
+    <DisplayFormat>BAR_GRAPH</DisplayFormat>
+    <Data>
+      <Entry>
+        <Identifier>power_bench_node2_5bf9a721062f</Identifier>
+        <Value></Value>
+        <RawString></RawString>
+        <JSON>{"install-footnote":"chrome 150.0.7871.128","test-run-times":"16.40","error":"The test quit with a non-zero exit status. E: NameError: name 'StaleElementReferenceException' is not defined"}</JSON>
+      </Entry>
+    </Data>
+  </Result>
+  <Result>
+    <Identifier>system/selenium-1.0.49</Identifier>
+    <Title>Selenium</Title>
+    <AppVersion></AppVersion>
+    <Arguments>speedometer3 Chrome</Arguments>
+    <Description>Benchmark: Speedometer 3.0 - Browser: Google Chrome</Description>
+    <Scale>Score</Scale>
+    <Proportion>HIB</Proportion>
+    <DisplayFormat>BAR_GRAPH</DisplayFormat>
+    <Data>
+      <Entry>
+        <Identifier>power_bench_node2_5bf9a721062f</Identifier>
+        <Value>6.63</Value>
+        <RawString></RawString>
+        <JSON>{"install-footnote":"chrome 150.0.7871.128","test-run-times":"82.08"}</JSON>
+      </Entry>
+    </Data>
+  </Result>
+  <Result>
+    <Identifier>system/selenium-1.0.49</Identifier>
+    <Title>Selenium</Title>
+    <AppVersion></AppVersion>
+    <Arguments>speedometer31 Chrome</Arguments>
+    <Description>Benchmark: Speedometer 3.1 - Browser: Google Chrome</Description>
+    <Scale>Score</Scale>
+    <Proportion>HIB</Proportion>
+    <DisplayFormat>BAR_GRAPH</DisplayFormat>
+    <Data>
+      <Entry>
+        <Identifier>power_bench_node2_5bf9a721062f</Identifier>
+        <Value>6.58</Value>
+        <RawString></RawString>
+        <JSON>{"install-footnote":"chrome 150.0.7871.128","test-run-times":"82.12"}</JSON>
+      </Entry>
+    </Data>
+  </Result>
+  <Result>
+    <Identifier>system/selenium-1.0.49</Identifier>
+    <Title>Selenium</Title>
+    <AppVersion></AppVersion>
+    <Arguments>wasmcollision Firefox</Arguments>
+    <Description>Benchmark: WASM collisionDetection - Browser: Firefox</Description>
+    <Scale>Score</Scale>
+    <Proportion>HIB</Proportion>
+    <DisplayFormat>BAR_GRAPH</DisplayFormat>
+    <Data>
+      <Entry>
+        <Identifier>power_bench_node2_5bf9a721062f</Identifier>
+        <Value></Value>
+        <RawString></RawString>
+        <JSON>{"install-footnote":"chrome 150.0.7871.128","test-run-times":"41.73","error":"The test quit with a non-zero exit status. E: NameError: name 'StaleElementReferenceException' is not defined"}</JSON>
+      </Entry>
+    </Data>
+  </Result>
+  <Result>
+    <Identifier>system/selenium-1.0.49</Identifier>
+    <Title>Selenium</Title>
+    <AppVersion></AppVersion>
+    <Arguments>wasmconvolute Chrome</Arguments>
+    <Description>Benchmark: WASM imageConvolute - Browser: Google Chrome</Description>
+    <Scale>Score</Scale>
+    <Proportion>HIB</Proportion>
+    <DisplayFormat>BAR_GRAPH</DisplayFormat>
+    <Data>
+      <Entry>
+        <Identifier>power_bench_node2_5bf9a721062f</Identifier>
+        <Value></Value>
+        <RawString></RawString>
+        <JSON>{"install-footnote":"chrome 150.0.7871.128","test-run-times":"7.21","error":"The test quit with a non-zero exit status. E: NameError: name 'StaleElementReferenceException' is not defined"}</JSON>
+      </Entry>
+    </Data>
+  </Result>
+  <Result>
+    <Identifier>system/selenium-1.0.49</Identifier>
+    <Title>Selenium</Title>
+    <AppVersion></AppVersion>
+    <Arguments>wasmcollision Chrome</Arguments>
+    <Description>Benchmark: WASM collisionDetection - Browser: Google Chrome</Description>
+    <Scale>Score</Scale>
+    <Proportion>HIB</Proportion>
+    <DisplayFormat>BAR_GRAPH</DisplayFormat>
+    <Data>
+      <Entry>
+        <Identifier>power_bench_node2_5bf9a721062f</Identifier>
+        <Value></Value>
+        <RawString></RawString>
+        <JSON>{"install-footnote":"chrome 150.0.7871.128","test-run-times":"9.04","error":"The test quit with a non-zero exit status. E: NameError: name 'StaleElementReferenceException' is not defined"}</JSON>
+      </Entry>
+    </Data>
+  </Result>
+</PhoronixTestSuite>
