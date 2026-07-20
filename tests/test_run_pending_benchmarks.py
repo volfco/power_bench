@@ -9,7 +9,7 @@ import run_pending_benchmarks
 class RunPendingBenchmarksTests(unittest.TestCase):
     @patch("run_pending_benchmarks.resolve_inventory_host")
     @patch("run_pending_benchmarks.subprocess.run")
-    def test_uses_three_repeat_resume_mode(self, run, resolve_host):
+    def test_uses_one_repeat_resume_mode_with_four_run_cap(self, run, resolve_host):
         run.return_value = SimpleNamespace(returncode=0)
 
         result = run_pending_benchmarks.main(["node2", "--dry-run"])
@@ -18,14 +18,16 @@ class RunPendingBenchmarksTests(unittest.TestCase):
         resolve_host.assert_called_once()
         command = run.call_args.args[0]
         self.assertEqual(
-            command[:6],
+            command[:8],
             [
                 sys.executable,
                 str(run_pending_benchmarks.ROOT / "run_suite.py"),
                 "node2",
                 "--repeats",
-                "3",
+                "1",
                 "--skip-existing",
+                "--run-cap",
+                "4",
             ],
         )
         self.assertEqual(command[-1], "--dry-run")
@@ -41,9 +43,11 @@ class RunPendingBenchmarksTests(unittest.TestCase):
         self.assertEqual(command.count("--sweep"), 1)
         self.assertEqual(command[command.index("--sweep") + 1], "amd")
 
-    def test_rejects_options_that_break_the_three_repeat_resume_contract(self):
+    def test_rejects_options_that_break_the_capped_resume_contract(self):
         with self.assertRaises(SystemExit):
             run_pending_benchmarks.main(["node2", "--repeats", "2"])
+        with self.assertRaises(SystemExit):
+            run_pending_benchmarks.main(["node2", "--run-cap", "5"])
 
 
 if __name__ == "__main__":

@@ -1,8 +1,11 @@
 import json
 import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
+
+import duckdb
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -12,6 +15,55 @@ import run_suite
 
 
 class AmdSweepTests(unittest.TestCase):
+    def test_run_cap_counts_persisted_cohort_and_queued_jobs(self):
+        jobs = [
+            ("variant", {"turbo_enabled": False}, "test/one", repeat)
+            for repeat in range(1, 4)
+        ]
+        cfg = run_suite.config_hash(run_suite.nondefaults(jobs[0][1]))
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "runs.duckdb"
+            with duckdb.connect(str(db_path)) as connection:
+                connection.execute(
+                    "CREATE TABLE runs "
+                    "(host VARCHAR, optimization VARCHAR, test VARCHAR, config_hash VARCHAR)"
+                )
+                connection.executemany(
+                    "INSERT INTO runs VALUES (?, ?, ?, ?)",
+                    [("node2", "variant", "test/one", cfg)] * 2,
+                )
+
+            kept, skipped = run_suite.apply_run_cap(
+                str(db_path), jobs, "node2", run_cap=4
+            )
+
+        self.assertEqual(kept, jobs[:2])
+        self.assertEqual(skipped, 1)
+
+    def test_run_cap_ignores_other_cohorts(self):
+        job = ("variant", {}, "test/one", 1)
+        cfg = run_suite.config_hash(run_suite.nondefaults(job[1]))
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "runs.duckdb"
+            with duckdb.connect(str(db_path)) as connection:
+                connection.execute(
+                    "CREATE TABLE runs "
+                    "(host VARCHAR, optimization VARCHAR, test VARCHAR, config_hash VARCHAR)"
+                )
+                connection.executemany(
+                    "INSERT INTO runs VALUES (?, ?, ?, ?)",
+                    [("node1", "variant", "test/one", cfg)] * 4,
+                )
+
+            kept, skipped = run_suite.apply_run_cap(
+                str(db_path), [job], "node2", run_cap=4
+            )
+
+        self.assertEqual(kept, [job])
+        self.assertEqual(skipped, 0)
+
     def test_core_profile_remains_the_default_catalog(self):
         self.assertEqual(
             run_suite.select_experiments(None, False), run_suite.EXPERIMENTS)

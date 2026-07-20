@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-"""Run every missing valid benchmark repeat for one Ansible inventory host.
+"""Run one pass over pending benchmarks for one Ansible inventory host.
+
+Persisted attempts are capped at four per host, variant, test, and configuration.
 
 Examples:
   python run_pending_benchmarks.py node2 --mac AA:BB:CC:DD:EE:FF
@@ -41,13 +43,20 @@ def main(argv: list[str] | None = None) -> int:
     )
     args, suite_args = parser.parse_known_args(argv)
 
-    prohibited = ("--repeats", "--skip-existing", "--no-skip-existing")
+    prohibited = (
+        "--repeats",
+        "--skip-existing",
+        "--no-skip-existing",
+        "--run-cap",
+    )
     if any(
         argument == option or argument.startswith(f"{option}=")
         for argument in suite_args
         for option in prohibited
     ):
-        parser.error("this command always uses --repeats 3 --skip-existing")
+        parser.error(
+            "this command always uses --repeats 1 --skip-existing --run-cap 4"
+        )
 
     inventory = option_value(suite_args, "--inventory", str(DEFAULT_INVENTORY))
     try:
@@ -62,6 +71,8 @@ def main(argv: list[str] | None = None) -> int:
         "--repeats",
         "1",
         "--skip-existing",
+        "--run-cap",
+        "4",
         *suite_args,
     ]
     print("+ " + shlex.join(command), flush=True)

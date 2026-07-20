@@ -514,6 +514,59 @@ def existing_valid_jobs(db_path, jobs, idle_duration, host):
     return completed
 
 
+def apply_run_cap(db_path, jobs, host, run_cap):
+    """Drop jobs whose persisted configuration/test cohort has reached its cap.
+
+    Unlike ``--skip-existing``, the cap counts every persisted run regardless of
+    repeat index or measurement validity. This bounds retries of configurations
+    that repeatedly produce invalid measurements.
+    """
+    jobs = list(jobs)
+    if run_cap is None:
+        return jobs, 0
+    if run_cap < 1:
+        raise ValueError("run cap must be at least 1")
+    if not os.path.exists(db_path):
+        return jobs, 0
+
+    try:
+        import duckdb
+    except ImportError as exc:
+        raise RuntimeError("--run-cap requires duckdb") from exc
+
+    con = None
+    try:
+        con = duckdb.connect(db_path, read_only=True)
+        rows = con.execute(
+            """
+            SELECT optimization, test, config_hash, COUNT(*)
+            FROM runs
+            WHERE host = ?
+            GROUP BY optimization, test, config_hash
+            """,
+            [host],
+        ).fetchall()
+    except Exception as exc:
+        raise RuntimeError(f"--run-cap could not read {db_path}: {exc}") from exc
+    finally:
+        if con is not None:
+            con.close()
+
+    counts = {(label, test, cfg): count for label, test, cfg, count in rows}
+    kept = []
+    skipped = 0
+    for job in jobs:
+        label, overrides, test, _repeat = job
+        key = (label, test, config_hash(nondefaults(overrides)))
+        count = counts.get(key, 0)
+        if count >= run_cap:
+            skipped += 1
+            continue
+        kept.append(job)
+        counts[key] = count + 1
+    return kept, skipped
+
+
 def main():
     ap = argparse.ArgumentParser(
         description=__doc__,
@@ -559,10 +612,21 @@ def main():
     ap.add_argument("--list", action="store_true")
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--skip-existing", action="store_true")
+    ap.add_argument(
+        "--run-cap",
+        type=int,
+        default=None,
+        help=(
+            "maximum persisted runs per (host, variant, test, config); "
+            "invalid runs count"
+        ),
+    )
     ap.add_argument("--shuffle", action="store_true")
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--initial-reboot", action="store_true")
     args = ap.parse_args()
+    if args.run_cap is not None and args.run_cap < 1:
+        ap.error("--run-cap must be at least 1")
 
     try:
         inventory_host = resolve_inventory_host(args.host, args.inventory)
@@ -641,6 +705,10 @@ def main():
             not in completed
         ]
         skipped_existing = before - len(jobs)
+    try:
+        jobs, skipped_capped = apply_run_cap(args.db, jobs, args.host, args.run_cap)
+    except (RuntimeError, ValueError) as exc:
+        ap.error(str(exc))
     if args.shuffle:
         import random
 
@@ -652,6 +720,8 @@ def main():
     )
     if skipped_existing:
         print(f"Skipped {skipped_existing} existing valid run(s).")
+    if skipped_capped:
+        print(f"Skipped {skipped_capped} run(s) at the persisted run cap.")
     print(
         f"Tests: {', '.join(args.tests)} "
         f"(idle-targeted variants: {IDLE_TEST} + {PERF_FLOOR_TEST})"
