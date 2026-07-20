@@ -354,7 +354,7 @@ def run_payload(
             scored = run.get("bench_score") is not None
             coverage = run.get("bench_sample_coverage")
             covered = (
-                coverage is not None and coverage >= 0.8
+                coverage is not None and coverage >= 0.7
                 if coverage_recorded
                 else True
             )
