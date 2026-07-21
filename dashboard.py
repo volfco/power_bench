@@ -27,7 +27,7 @@ from urllib.parse import parse_qs, urlparse
 
 import duckdb
 
-from run_suite import EXPERIMENTS, IDLE_TEST, PERF_FLOOR_TEST
+from run_suite import EXPERIMENTS, AMD_EXPERIMENTS, IDLE_TEST, PERF_FLOOR_TEST
 
 
 ROOT = Path(__file__).resolve().parent
@@ -35,6 +35,24 @@ DEFAULT_DB = ROOT / "benchmarks" / "power_meter.duckdb"
 MAX_RUNS = 500
 MAX_PLOT_POINTS = 450
 PLANNED_TARGETS = {label: target for label, _overrides, target in EXPERIMENTS}
+
+
+def config_architecture_map() -> dict[str, str]:
+    """Build a mapping of configuration name to architecture category."""
+    intel_configs = {label for label, _, _ in EXPERIMENTS}
+    amd_configs = {label for label, _, _ in AMD_EXPERIMENTS}
+    all_configs = intel_configs | amd_configs
+    result: dict[str, str] = {}
+    for name in all_configs:
+        in_intel = name in intel_configs
+        in_amd = name in amd_configs
+        if in_intel and in_amd:
+            result[name] = "Both"
+        elif in_intel:
+            result[name] = "Intel"
+        else:
+            result[name] = "AMD"
+    return result
 
 
 def json_default(value: Any) -> Any:
@@ -122,6 +140,7 @@ class DatabaseReader:
                         f"ORDER BY {quote_identifier(column)}"
                     ).fetchall()
                 ]
+            values["configArchitecture"] = config_architecture_map()
             return values
 
     def runs(self, filters: dict[str, str]) -> list[dict[str, Any]]:
@@ -136,6 +155,8 @@ class DatabaseReader:
                 if value:
                     where.append(f"{quote_identifier(column)} = ?")
                     params.append(value)
+            arch_filter = filters.get("arch", "")
+            arch_map = config_architecture_map()
             status = filters.get("status", "all")
             if status == "complete" and "bench_end" in columns:
                 where.append("bench_end IS NOT NULL")
@@ -158,7 +179,10 @@ class DatabaseReader:
                 sql += " WHERE " + " AND ".join(where)
             sql += " ORDER BY started_at DESC, run_id DESC LIMIT ?"
             params.append(MAX_RUNS)
-            return rows_as_dicts(conn.execute(sql, params))
+            runs = rows_as_dicts(conn.execute(sql, params))
+            if arch_filter:
+                runs = [r for r in runs if arch_map.get(r.get("optimization")) == arch_filter]
+            return runs
 
     def aggregates(self, filters: dict[str, str]) -> list[dict[str, Any]]:
         """Give the comparison chart one row per test/optimization pair."""
@@ -458,6 +482,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
         if parsed.path == "/api/coverage":
             self.send_json(self.reader.coverage())
             return
+        if parsed.path == "/api/architecture":
+            self.send_json(config_architecture_map())
+            return
         if parsed.path.startswith("/api/runs/"):
             run_id_text = parsed.path.removeprefix("/api/runs/")
             try:
@@ -534,6 +561,10 @@ PAGE = r'''<!doctype html>
     .num { text-align:right; }
     .chip { display:inline-flex; border-radius:99px; padding:3px 7px; font-size:11px; font-weight:750; }
     .good { color:#13693d; background:#dff3e4; }.warn { color:#89500b; background:#fff0c9; }.bad { color:#a12b36; background:#fbe0e2; }.neutral { color:#45625e; background:#e5ece8; }
+    .arch-tag { display:inline-block; border-radius:99px; padding:2px 6px; font-size:9px; font-weight:800; letter-spacing:.04em; text-transform:uppercase; margin-left:6px; vertical-align:middle; }
+    .arch-intel { color:#1a5276; background:#d4e6f1; }
+    .arch-amd { color:#7b241c; background:#f5b7b1; }
+    .arch-both { color:#1e6e3e; background:#d5f5e3; }
     .detail { min-height:650px; overflow:hidden; }
     .empty { display:grid; min-height:600px; place-items:center; padding:36px; text-align:center; color:var(--muted); }
     .empty strong { display:block; margin-bottom:6px; color:var(--ink); font:24px Georgia,serif; }
@@ -579,6 +610,7 @@ PAGE = r'''<!doctype html>
       <div class="field"><label for="optimization">Optimization</label><select id="optimization"><option value="">All optimizations</option></select></div>
       <div class="field"><label for="test">Test</label><select id="test"><option value="">All tests</option></select></div>
       <div class="field"><label for="host">Host</label><select id="host"><option value="">All hosts</option></select></div>
+      <div class="field"><label for="archFilter">Architecture</label><select id="archFilter"><option value="">All architectures</option><option value="Intel">Intel</option><option value="AMD">AMD</option><option value="Both">Both</option></select></div>
       <div class="field"><label for="status">Run status</label><select id="status"><option value="all">All runs</option><option value="complete">Completed</option><option value="incomplete">In progress / incomplete</option></select></div>
       <div class="field"><label for="search">Find text</label><input id="search" type="search" placeholder="Name, hash, host…"></div>
       <button class="clear" id="clearFilters" type="button">Clear filters</button>
@@ -607,25 +639,26 @@ PAGE = r'''<!doctype html>
   </main>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.1/dist/chart.umd.min.js"></script>
   <script>
-    const state = { runs: [], coverage: [], hostComparisons: [], selected: null, filters: {} };
+    const state = { runs: [], coverage: [], hostComparisons: [], selected: null, filters: {}, archMap: {} };
     const $ = (selector) => document.querySelector(selector);
     const escapeHtml = (value) => String(value ?? '').replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
+    function archTag(name) { const arch = state.archMap[name]; if (!arch) return ''; const cls = arch === 'Intel' ? 'arch-intel' : arch === 'AMD' ? 'arch-amd' : 'arch-both'; return `<span class="arch-tag ${cls}">${escapeHtml(arch)}</span>`; }
     const number = (value, digits = 2) => value == null || Number.isNaN(Number(value)) ? '—' : Number(value).toLocaleString(undefined, { maximumFractionDigits: digits, minimumFractionDigits: 0 });
     const dateTime = (value) => { if (!value) return '—'; const parsed = new Date(String(value).replace(' ', 'T')); return Number.isNaN(parsed) ? String(value) : parsed.toLocaleString(undefined,{dateStyle:'medium',timeStyle:'short'}); };
     const shortTest = (name) => { if (!name) return 'untitled'; const last = String(name).split('/').filter(Boolean).pop(); return last || name; };
     const api = async (path) => { const response = await fetch(path, {cache:'no-store'}); const body = await response.json().catch(() => ({})); if (!response.ok) throw new Error(body.error || `Request failed (${response.status})`); return body; };
-    const query = () => { const p = new URLSearchParams(); const values = { optimization:$('#optimization').value, test:$('#test').value, host:$('#host').value, status:$('#status').value, q:$('#search').value.trim() }; Object.entries(values).forEach(([k,v]) => {if(v && !(k==='status' && v==='all'))p.set(k,v)}); return p.toString(); };
+    const query = () => { const p = new URLSearchParams(); const values = { optimization:$('#optimization').value, test:$('#test').value, host:$('#host').value, arch:$('#archFilter').value, status:$('#status').value, q:$('#search').value.trim() }; Object.entries(values).forEach(([k,v]) => {if(v && !(k==='status' && v==='all'))p.set(k,v)}); return p.toString(); };
     const quality = (run) => { if (run.test === 'idle' && run.dropped_packets === 0) return ['idle captured','good']; if (!run.bench_end) return ['in progress','warn']; if (run.dropped_packets > 0) return [`${run.dropped_packets} dropped`,'bad']; if (run.bench_sample_coverage != null && run.bench_sample_coverage < .9) return [`${Math.round(run.bench_sample_coverage*100)}% coverage`,'warn']; return ['complete','good']; };
     function fillSelect(id, values, label) { const select = $(id); const prior = select.value; select.innerHTML = `<option value="">${label}</option>` + values.map(v => `<option value="${escapeHtml(v)}">${escapeHtml(v)}</option>`).join(''); select.value = values.includes(prior) ? prior : ''; }
     async function loadOverview() { const overview = await api('/api/overview'); if (!overview.available) throw new Error(overview.reason || 'Database unavailable.'); $('#runCount').textContent = number(overview.run_count,0); $('#completeCount').textContent = number(overview.completed_count,0); $('#optimizationCount').textContent = number(overview.optimization_count,0); $('#readingCount').textContent = number(overview.reading_count,0); $('#latestRun').textContent = overview.latest_started_at ? dateTime(overview.latest_started_at) : 'No runs'; }
-    async function loadFilters() { const filters = await api('/api/filters'); fillSelect('#optimization', filters.optimizations, 'All optimizations'); fillSelect('#test', filters.tests, 'All tests'); fillSelect('#host', filters.hosts, 'All hosts'); }
-    function renderRuns(runs) { state.runs = runs; $('#resultCount').textContent = `${runs.length} run${runs.length===1?'':'s'} shown`; const tbody = $('#runs'); if (!runs.length) { tbody.innerHTML = '<tr><td colspan="5" class="loading">No runs match these filters.</td></tr>'; return; } tbody.innerHTML = runs.map(run => { const [q,kind] = quality(run); const result = run.bench_score == null ? '—' : `${number(run.bench_score,3)}${run.bench_unit ? ` ${escapeHtml(run.bench_unit)}` : ''}`; return `<tr class="run ${state.selected===run.run_id?'selected':''}" data-id="${run.run_id}" tabindex="0"><td><strong>#${run.run_id} · ${escapeHtml(shortTest(run.test))}</strong><span class="secondary">${escapeHtml(dateTime(run.started_at))} · repeat ${run.repeat_idx ?? '—'}</span></td><td><span class="run-name" title="${escapeHtml(run.optimization || '')}">${escapeHtml(run.optimization || 'baseline')}</span><span class="secondary">${escapeHtml(run.host || 'unknown host')}</span></td><td class="num">${result}</td><td class="num">${run.energy_wh_integrated == null ? '—' : `${number(run.energy_wh_integrated,3)} Wh`}</td><td><span class="chip ${kind}">${q}</span></td></tr>`; }).join(''); tbody.querySelectorAll('tr.run').forEach(row => { row.addEventListener('click', () => selectRun(Number(row.dataset.id))); row.addEventListener('keydown', event => { if(event.key==='Enter'||event.key===' '){event.preventDefault();selectRun(Number(row.dataset.id));} }); }); }
+    async function loadFilters() { const filters = await api('/api/filters'); fillSelect('#optimization', filters.optimizations, 'All optimizations'); fillSelect('#test', filters.tests, 'All tests'); fillSelect('#host', filters.hosts, 'All hosts'); state.archMap = filters.configArchitecture || {}; }
+    function renderRuns(runs) { state.runs = runs; $('#resultCount').textContent = `${runs.length} run${runs.length===1?'':'s'} shown`; const tbody = $('#runs'); if (!runs.length) { tbody.innerHTML = '<tr><td colspan="5" class="loading">No runs match these filters.</td></tr>'; return; } tbody.innerHTML = runs.map(run => { const [q,kind] = quality(run); const result = run.bench_score == null ? '—' : `${number(run.bench_score,3)}${run.bench_unit ? ` ${escapeHtml(run.bench_unit)}` : ''}`; return `<tr class="run ${state.selected===run.run_id?'selected':''}" data-id="${run.run_id}" tabindex="0"><td><strong>#${run.run_id} · ${escapeHtml(shortTest(run.test))}</strong><span class="secondary">${escapeHtml(dateTime(run.started_at))} · repeat ${run.repeat_idx ?? '—'}</span></td><td><span class="run-name" title="${escapeHtml(run.optimization || '')}">${escapeHtml(run.optimization || 'baseline')}${archTag(run.optimization)}</span><span class="secondary">${escapeHtml(run.host || 'unknown host')}</span></td><td class="num">${result}</td><td class="num">${run.energy_wh_integrated == null ? '—' : `${number(run.energy_wh_integrated,3)} Wh`}</td><td><span class="chip ${kind}">${q}</span></td></tr>`; }).join(''); tbody.querySelectorAll('tr.run').forEach(row => { row.addEventListener('click', () => selectRun(Number(row.dataset.id))); row.addEventListener('keydown', event => { if(event.key==='Enter'||event.key===' '){event.preventDefault();selectRun(Number(row.dataset.id));} }); }); }
     async function loadRuns() { const qs = query(); const runs = await api('/api/runs' + (qs ? `?${qs}` : '')); renderRuns(runs); if (state.selected && !runs.some(run => run.run_id === state.selected)) clearDetail(); }
     async function loadComparison() { const qs = query(); const items = await api('/api/aggregates' + (qs ? `?${qs}` : '')); const target = $('#comparison'); const usable = items.filter(item => item.average_energy_wh != null); if (!usable.length) { target.innerHTML = '<span class="loading">No completed runs with energy data for this filter.</span>'; return; } const maximum = Math.max(...usable.map(item => Number(item.average_energy_wh))); target.innerHTML = usable.map(item => { const label = `${item.optimization || 'baseline'} · ${shortTest(item.test)}`; const width = Math.max(2, (Number(item.average_energy_wh) / maximum) * 100); return `<div class="compare-row"><span class="compare-label" title="${escapeHtml(label)}">${escapeHtml(label)}</span><div class="bar-track"><div class="bar" style="width:${width}%"></div></div><span class="bar-value">${number(item.average_energy_wh,3)} Wh <small>n=${item.run_count}</small></span></div>`; }).join(''); }
     const coverageLabel = (status) => ({complete:'Complete',attention:'Complete + retry',incomplete:'Incomplete / invalid',missing:'Not run yet',skipped:'Skipped by plan'})[status] || status;
-    function coverageRows() { return state.coverage.filter(row => (!$('#coverageHost').value || row.host === $('#coverageHost').value) && (!$('#coverageTest').value || row.test === $('#coverageTest').value) && (!$('#coverageStatus').value || row.status === $('#coverageStatus').value)); }
+    function coverageRows() { const a = $('#archFilter').value; return state.coverage.filter(row => (!$('#coverageHost').value || row.host === $('#coverageHost').value) && (!$('#coverageTest').value || row.test === $('#coverageTest').value) && (!$('#coverageStatus').value || row.status === $('#coverageStatus').value) && (!a || state.archMap[row.optimization] === a)); }
     function coverageResult(row) { if (row.average_bench_score != null) return `${number(row.average_bench_score,3)}${row.bench_unit ? ` ${escapeHtml(row.bench_unit)}` : ''}`; if (row.average_idle_power_w != null) return `idle ${number(row.average_idle_power_w,2)} W`; return '—'; }
-    function renderCoverage() { const rows = coverageRows(); const counts = rows.reduce((all,row) => ({...all,[row.status]:(all[row.status] || 0) + 1}), {}); $('#coverageCount').textContent = `${rows.length} combinations · ${counts.complete || 0} complete · ${counts.missing || 0} not run`; const tbody = $('#coverage'); if (!rows.length) { tbody.innerHTML = '<tr><td colspan="8" class="loading">No coverage combinations match these filters.</td></tr>'; return; } tbody.innerHTML = rows.map(row => { const runs = row.run_count ? `${row.valid_count}/${row.run_count} valid` : '—'; const latest = row.latest_run_id == null ? '—' : `<button class="open-run" type="button" data-id="${row.latest_run_id}">#${row.latest_run_id} · ${escapeHtml(dateTime(row.latest_started_at))}</button>`; return `<tr><td>${escapeHtml(row.host)}</td><td class="optimization-name">${escapeHtml(row.optimization)}</td><td class="test-name">${escapeHtml(row.test)}</td><td><span class="chip status-${escapeHtml(row.status)}">${escapeHtml(coverageLabel(row.status))}</span></td><td class="num result">${coverageResult(row)}</td><td class="num">${row.average_energy_wh == null ? '—' : `${number(row.average_energy_wh,3)} Wh`}</td><td class="num">${runs}</td><td class="latest">${latest}</td></tr>`; }).join(''); tbody.querySelectorAll('.open-run').forEach(button => button.addEventListener('click', () => { setView('explorer'); selectRun(Number(button.dataset.id)); })); }
+    function renderCoverage() { const rows = coverageRows(); const counts = rows.reduce((all,row) => ({...all,[row.status]:(all[row.status] || 0) + 1}), {}); $('#coverageCount').textContent = `${rows.length} combinations · ${counts.complete || 0} complete · ${counts.missing || 0} not run`; const tbody = $('#coverage'); if (!rows.length) { tbody.innerHTML = '<tr><td colspan="8" class="loading">No coverage combinations match these filters.</td></tr>'; return; } tbody.innerHTML = rows.map(row => { const runs = row.run_count ? `${row.valid_count}/${row.run_count} valid` : '—'; const latest = row.latest_run_id == null ? '—' : `<button class="open-run" type="button" data-id="${row.latest_run_id}">#${row.latest_run_id} · ${escapeHtml(dateTime(row.latest_started_at))}</button>`; return `<tr><td>${escapeHtml(row.host)}</td><td class="optimization-name">${escapeHtml(row.optimization)}${archTag(row.optimization)}</td><td class="test-name">${escapeHtml(row.test)}</td><td><span class="chip status-${escapeHtml(row.status)}">${escapeHtml(coverageLabel(row.status))}</span></td><td class="num result">${coverageResult(row)}</td><td class="num">${row.average_energy_wh == null ? '—' : `${number(row.average_energy_wh,3)} Wh`}</td><td class="num">${runs}</td><td class="latest">${latest}</td></tr>`; }).join(''); tbody.querySelectorAll('.open-run').forEach(button => button.addEventListener('click', () => { setView('explorer'); selectRun(Number(button.dataset.id)); })); }
     async function loadCoverage() { const coverage = await api('/api/coverage'); state.coverage = coverage; fillSelect('#coverageHost', [...new Set(coverage.map(row => row.host))], 'All hosts'); fillSelect('#coverageTest', [...new Set(coverage.map(row => row.test))], 'All tests'); renderCoverage(); }
     function hostCompareRows(){const fields={energy:['average_energy_wh','minimum_energy_wh','maximum_energy_wh'],idle:['average_idle_power_w','minimum_idle_power_w','maximum_idle_power_w'],power:['average_bench_power_w','minimum_bench_power_w','maximum_bench_power_w'],score:['average_bench_score','minimum_bench_score','maximum_bench_score']}[$('#hostCompareMetric').value],test=$('#hostCompareTest').value,optimization=$('#hostCompareOptimization').value;return state.hostComparisons.filter(r=>Number(r.valid_count)>0&&r[fields[0]]!=null&&(!test||r.test===test)&&(!optimization||r.optimization===optimization)).map(r=>({...r,mean:Number(r[fields[0]]),min:Number(r[fields[1]]),max:Number(r[fields[2]])})).sort((a,b)=>a.test.localeCompare(b.test)||a.optimization.localeCompare(b.optimization)||a.host.localeCompare(b.host))}
     const hostComparisonCharts={},hostRangeBars={id:'hostRangeBars',afterDatasetsDraw(chart){const y=chart.scales.y,ctx=chart.ctx;chart.data.datasets.forEach((dataset,d)=>chart.getDatasetMeta(d).data.forEach((bar,i)=>{const raw=dataset.data[i];if(!bar||!raw||!Number.isFinite(Number(raw.min))||!Number.isFinite(Number(raw.max))||!Number.isFinite(bar.x))return;const top=y.getPixelForValue(raw.max),bottom=y.getPixelForValue(raw.min);ctx.save();ctx.strokeStyle=dataset.borderColor;ctx.lineWidth=1.4;ctx.beginPath();ctx.moveTo(bar.x,top);ctx.lineTo(bar.x,bottom);ctx.moveTo(bar.x-4,top);ctx.lineTo(bar.x+4,top);ctx.moveTo(bar.x-4,bottom);ctx.lineTo(bar.x+4,bottom);ctx.stroke();ctx.restore()}))}};
@@ -662,7 +695,7 @@ PAGE = r'''<!doctype html>
     function refreshRuns() { Promise.all([loadRuns(),loadComparison()]).catch(showError); }
     function showError(error) { const message = error.message || 'Unexpected error.'; $('#runs').innerHTML = `<tr><td colspan="5"><div class="error">${escapeHtml(message)}</div></td></tr>`; $('#comparison').innerHTML = `<div class="error">${escapeHtml(message)}</div>`; }
     async function start() { try { await Promise.all([loadOverview(),loadFilters(),loadCoverage(),loadHostComparisons()]); await Promise.all([loadRuns(),loadComparison()]); } catch(error) { showError(error); } }
-    ['#optimization','#test','#host','#status'].forEach(id=>$(id).addEventListener('change',refreshRuns)); ['#coverageHost','#coverageTest','#coverageStatus'].forEach(id=>$(id).addEventListener('change',renderCoverage)); ['#hostCompareMetric','#hostCompareReference','#hostCompareTest','#hostCompareOptimization'].forEach(id=>$(id).addEventListener('change',renderHostComparisons)); $('#search').addEventListener('input',()=>{clearTimeout(searchTimer);searchTimer=setTimeout(refreshRuns,180)}); $('#clearFilters').addEventListener('click',()=>{['#optimization','#test','#host','#search'].forEach(id=>$(id).value='');$('#status').value='all';refreshRuns();}); $('#explorerTab').addEventListener('click',()=>setView('explorer')); $('#hostCompareTab').addEventListener('click',()=>{setView('hostCompare');renderHostComparisons()}); $('#coverageTab').addEventListener('click',()=>setView('coverage')); $('#refresh').addEventListener('click',()=>start()); window.addEventListener('resize',()=>{if(state.selected){const run = null; /* canvas is redrawn when another run is selected */}}); start();
+    ['#optimization','#test','#host','#archFilter','#status'].forEach(id=>$(id).addEventListener('change',refreshRuns)); ['#coverageHost','#coverageTest','#coverageStatus'].forEach(id=>$(id).addEventListener('change',renderCoverage)); ['#hostCompareMetric','#hostCompareReference','#hostCompareTest','#hostCompareOptimization'].forEach(id=>$(id).addEventListener('change',renderHostComparisons)); $('#search').addEventListener('input',()=>{clearTimeout(searchTimer);searchTimer=setTimeout(refreshRuns,180)}); $('#clearFilters').addEventListener('click',()=>{['#optimization','#test','#host','#archFilter','#search'].forEach(id=>$(id).value='');$('#status').value='all';refreshRuns();}); $('#explorerTab').addEventListener('click',()=>setView('explorer')); $('#hostCompareTab').addEventListener('click',()=>{setView('hostCompare');renderHostComparisons()}); $('#coverageTab').addEventListener('click',()=>setView('coverage')); $('#refresh').addEventListener('click',()=>start()); window.addEventListener('resize',()=>{if(state.selected){const run = null; /* canvas is redrawn when another run is selected */}}); start();
   </script>
 </body>
 </html>'''

@@ -14,9 +14,35 @@ from typing import Any
 
 import duckdb
 
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from run_suite import EXPERIMENTS, AMD_EXPERIMENTS
+
 
 DEFAULT_ROW_LIMIT = 250
 IDLE_TEST = "idle"
+
+
+def config_architecture_map() -> dict[str, str]:
+    """Build a mapping of configuration name to architecture category.
+
+    Returns 'Intel', 'AMD', or 'Both' based on which experiment catalog(s)
+    contain the configuration.
+    """
+    intel_configs = {label for label, _, _ in EXPERIMENTS}
+    amd_configs = {label for label, _, _ in AMD_EXPERIMENTS}
+    all_configs = intel_configs | amd_configs
+    result: dict[str, str] = {}
+    for name in all_configs:
+        in_intel = name in intel_configs
+        in_amd = name in amd_configs
+        if in_intel and in_amd:
+            result[name] = "Both"
+        elif in_intel:
+            result[name] = "Intel"
+        else:
+            result[name] = "AMD"
+    return result
 TEMPLATE = Path(__file__).with_name("report_template.html")
 RUN_TEMPLATE = Path(__file__).with_name("run_report_template.html")
 HOST_SPEC_FIELDS = (
@@ -426,6 +452,7 @@ def report_payload(
             "hosts": sorted({run["host"] for run in runs}),
             "tests": sorted({run["test"] for run in runs}),
             "configurations": sorted({run["optimization"] for run in runs}),
+            "configArchitecture": config_architecture_map(),
         },
         "runs": runs,
         "resultsByRun": results_by_run,
