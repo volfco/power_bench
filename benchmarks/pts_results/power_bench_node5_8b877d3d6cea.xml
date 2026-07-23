@@ -1,0 +1,326 @@
+<?xml version="1.0"?>
+<!--Phoronix Test Suite v10.8.4-->
+<PhoronixTestSuite>
+  <Generated>
+    <Title>power_bench_node5_8b877d3d6cea</Title>
+    <LastModified>2026-07-23 20:43:46</LastModified>
+    <TestClient>Phoronix Test Suite v10.8.4</TestClient>
+    <Description>power_bench automated run</Description>
+  </Generated>
+  <System>
+    <Identifier>power_bench_node5_8b877d3d6cea</Identifier>
+    <Hardware>Processor: Intel N150 @ 3.60GHz (4 Cores), Motherboard: GMKtec (5.27 BIOS), Chipset: Intel Alder Lake-N PCH, Memory: 12GB, Disk: 256GB TWSC TSC10N256-H, Graphics: llvmpipe (1000MHz), Audio: Intel Alder Lake-N PCH HD Audio, Network: 2 x Realtek RTL8111/8168/8211/8411 + Realtek RTL8852BE PCIe 802.11ax</Hardware>
+    <Software>OS: Ubuntu 26.04, Kernel: 7.0.0-28-generic (x86_64), OpenGL: 4.5 Mesa 26.0.3-1ubuntu1 (LLVM 21.1.8 256 bits), Compiler: GCC 15.2.0 + Clang 21.1.8 + LLVM 21.1.8, File-System: ext4, Screen Resolution: 1920x1080</Software>
+    <User>metrolla</User>
+    <TimeStamp>2026-07-23 20:23:59</TimeStamp>
+    <TestClientVersion>10.8.4</TestClientVersion>
+    <Notes></Notes>
+    <JSON>{"compiler-configuration":"--build=x86_64-linux-gnu --disable-vtable-verify --disable-werror --enable-bootstrap --enable-cet --enable-checking=release --enable-clocale=gnu --enable-default-pie --enable-gnu-unique-object --enable-languages=c,ada,c++,go,d,fortran,objc,obj-c++,m2,rust,cobol,algol68 --enable-libphobos-checking=release --enable-libstdcxx-backtrace --enable-libstdcxx-debug --enable-libstdcxx-time=yes --enable-link-serialization=2 --enable-multiarch --enable-multilib --enable-nls --enable-objc-gc=auto --enable-offload-defaulted --enable-offload-targets=nvptx-none=\/build\/gcc-15-j35TAX\/gcc-15-15.2.0\/debian\/tmp-nvptx\/usr,amdgcn-amdhsa=\/build\/gcc-15-j35TAX\/gcc-15-15.2.0\/debian\/tmp-gcn\/usr --enable-plugin --enable-shared --enable-threads=posix --host=x86_64-linux-gnu --program-prefix=x86_64-linux-gnu- --target=x86_64-linux-gnu --with-abi=m64 --with-arch-32=i686 --with-build-config=bootstrap-lto-lean --with-default-libstdcxx-abi=new --with-gcc-major-version-only --with-multilib-list=m32,m64,mx32 --with-target-system-zlib=auto --with-tune=generic --without-cuda-driver -v","cpu-scaling-governor":"intel_pstate powersave (EPP: balance_performance)","cpu-microcode":"0x21","cpu-thermald":"2.5.11","kernel-extra-details":"Transparent Huge Pages: madvise","security":"gather_data_sampling: Not affected + ghostwrite: Not affected + indirect_target_selection: Not affected + itlb_multihit: Not affected + l1tf: Not affected + mds: Not affected + meltdown: Not affected + mmio_stale_data: Not affected + old_microcode: Not affected + reg_file_data_sampling: Mitigation of Clear Register File + retbleed: Not affected + spec_rstack_overflow: Not affected + spec_store_bypass: Mitigation of SSB disabled via prctl + spectre_v1: Mitigation of usercopy\/swapgs barriers and __user pointer sanitization + spectre_v2: Mitigation of Enhanced \/ Automatic IBRS; IBPB: conditional; PBRSB-eIBRS: Not affected; BHI: BHI_DIS_S + srbds: Not affected + tsa: Not affected + tsx_async_abort: Not affected + vmscape: Mitigation of IBPB before exit userspace"}</JSON>
+  </System>
+  <Result>
+    <Identifier>pts/ramspeed-1.4.3</Identifier>
+    <Title>RAMspeed SMP</Title>
+    <AppVersion>3.5.0</AppVersion>
+    <Arguments>ADD -b 3</Arguments>
+    <Description>Type: Add - Benchmark: Integer</Description>
+    <Scale>MB/s</Scale>
+    <Proportion>HIB</Proportion>
+    <DisplayFormat>BAR_GRAPH</DisplayFormat>
+    <Data>
+      <Entry>
+        <Identifier>power_bench_node5_8b877d3d6cea</Identifier>
+        <Value>23629.69</Value>
+        <RawString></RawString>
+        <JSON>{"compiler-options":{"compiler-type":"CC","compiler":"gcc","compiler-options":"-O3 -march=native"},"test-run-times":"77.74"}</JSON>
+      </Entry>
+    </Data>
+  </Result>
+  <Result>
+    <Identifier>pts/ramspeed-1.4.3</Identifier>
+    <Title>RAMspeed SMP</Title>
+    <AppVersion>3.5.0</AppVersion>
+    <Arguments>COPY -b 3</Arguments>
+    <Description>Type: Copy - Benchmark: Integer</Description>
+    <Scale>MB/s</Scale>
+    <Proportion>HIB</Proportion>
+    <DisplayFormat>BAR_GRAPH</DisplayFormat>
+    <Data>
+      <Entry>
+        <Identifier>power_bench_node5_8b877d3d6cea</Identifier>
+        <Value>21039.88</Value>
+        <RawString></RawString>
+        <JSON>{"compiler-options":{"compiler-type":"CC","compiler":"gcc","compiler-options":"-O3 -march=native"},"test-run-times":"77.69"}</JSON>
+      </Entry>
+    </Data>
+  </Result>
+  <Result>
+    <Identifier>pts/ramspeed-1.4.3</Identifier>
+    <Title>RAMspeed SMP</Title>
+    <AppVersion>3.5.0</AppVersion>
+    <Arguments>SCALE -b 3</Arguments>
+    <Description>Type: Scale - Benchmark: Integer</Description>
+    <Scale>MB/s</Scale>
+    <Proportion>HIB</Proportion>
+    <DisplayFormat>BAR_GRAPH</DisplayFormat>
+    <Data>
+      <Entry>
+        <Identifier>power_bench_node5_8b877d3d6cea</Identifier>
+        <Value>20899.38</Value>
+        <RawString></RawString>
+        <JSON>{"compiler-options":{"compiler-type":"CC","compiler":"gcc","compiler-options":"-O3 -march=native"},"test-run-times":"77.67"}</JSON>
+      </Entry>
+    </Data>
+  </Result>
+  <Result>
+    <Identifier>pts/ramspeed-1.4.3</Identifier>
+    <Title>RAMspeed SMP</Title>
+    <AppVersion>3.5.0</AppVersion>
+    <Arguments>TRIAD -b 3</Arguments>
+    <Description>Type: Triad - Benchmark: Integer</Description>
+    <Scale>MB/s</Scale>
+    <Proportion>HIB</Proportion>
+    <DisplayFormat>BAR_GRAPH</DisplayFormat>
+    <Data>
+      <Entry>
+        <Identifier>power_bench_node5_8b877d3d6cea</Identifier>
+        <Value>23430.2</Value>
+        <RawString></RawString>
+        <JSON>{"compiler-options":{"compiler-type":"CC","compiler":"gcc","compiler-options":"-O3 -march=native"},"test-run-times":"77.65"}</JSON>
+      </Entry>
+    </Data>
+  </Result>
+  <Result>
+    <Identifier>pts/ramspeed-1.4.3</Identifier>
+    <Title>RAMspeed SMP</Title>
+    <AppVersion>3.5.0</AppVersion>
+    <Arguments>AVERAGE -b 3</Arguments>
+    <Description>Type: Average - Benchmark: Integer</Description>
+    <Scale>MB/s</Scale>
+    <Proportion>HIB</Proportion>
+    <DisplayFormat>BAR_GRAPH</DisplayFormat>
+    <Data>
+      <Entry>
+        <Identifier>power_bench_node5_8b877d3d6cea</Identifier>
+        <Value>22224.29</Value>
+        <RawString></RawString>
+        <JSON>{"compiler-options":{"compiler-type":"CC","compiler":"gcc","compiler-options":"-O3 -march=native"},"test-run-times":"77.69"}</JSON>
+      </Entry>
+    </Data>
+  </Result>
+  <Result>
+    <Identifier>pts/ramspeed-1.4.3</Identifier>
+    <Title>RAMspeed SMP</Title>
+    <AppVersion>3.5.0</AppVersion>
+    <Arguments>ADD -b 6</Arguments>
+    <Description>Type: Add - Benchmark: Floating Point</Description>
+    <Scale>MB/s</Scale>
+    <Proportion>HIB</Proportion>
+    <DisplayFormat>BAR_GRAPH</DisplayFormat>
+    <Data>
+      <Entry>
+        <Identifier>power_bench_node5_8b877d3d6cea</Identifier>
+        <Value>23493.59</Value>
+        <RawString></RawString>
+        <JSON>{"compiler-options":{"compiler-type":"CC","compiler":"gcc","compiler-options":"-O3 -march=native"},"test-run-times":"77.61"}</JSON>
+      </Entry>
+    </Data>
+  </Result>
+  <Result>
+    <Identifier>pts/ramspeed-1.4.3</Identifier>
+    <Title>RAMspeed SMP</Title>
+    <AppVersion>3.5.0</AppVersion>
+    <Arguments>COPY -b 6</Arguments>
+    <Description>Type: Copy - Benchmark: Floating Point</Description>
+    <Scale>MB/s</Scale>
+    <Proportion>HIB</Proportion>
+    <DisplayFormat>BAR_GRAPH</DisplayFormat>
+    <Data>
+      <Entry>
+        <Identifier>power_bench_node5_8b877d3d6cea</Identifier>
+        <Value>21044.32</Value>
+        <RawString></RawString>
+        <JSON>{"compiler-options":{"compiler-type":"CC","compiler":"gcc","compiler-options":"-O3 -march=native"},"test-run-times":"77.57"}</JSON>
+      </Entry>
+    </Data>
+  </Result>
+  <Result>
+    <Identifier>pts/ramspeed-1.4.3</Identifier>
+    <Title>RAMspeed SMP</Title>
+    <AppVersion>3.5.0</AppVersion>
+    <Arguments>SCALE -b 6</Arguments>
+    <Description>Type: Scale - Benchmark: Floating Point</Description>
+    <Scale>MB/s</Scale>
+    <Proportion>HIB</Proportion>
+    <DisplayFormat>BAR_GRAPH</DisplayFormat>
+    <Data>
+      <Entry>
+        <Identifier>power_bench_node5_8b877d3d6cea</Identifier>
+        <Value>20999.04</Value>
+        <RawString></RawString>
+        <JSON>{"compiler-options":{"compiler-type":"CC","compiler":"gcc","compiler-options":"-O3 -march=native"},"test-run-times":"77.59"}</JSON>
+      </Entry>
+    </Data>
+  </Result>
+  <Result>
+    <Identifier>pts/ramspeed-1.4.3</Identifier>
+    <Title>RAMspeed SMP</Title>
+    <AppVersion>3.5.0</AppVersion>
+    <Arguments>TRIAD -b 6</Arguments>
+    <Description>Type: Triad - Benchmark: Floating Point</Description>
+    <Scale>MB/s</Scale>
+    <Proportion>HIB</Proportion>
+    <DisplayFormat>BAR_GRAPH</DisplayFormat>
+    <Data>
+      <Entry>
+        <Identifier>power_bench_node5_8b877d3d6cea</Identifier>
+        <Value>23423.66</Value>
+        <RawString></RawString>
+        <JSON>{"compiler-options":{"compiler-type":"CC","compiler":"gcc","compiler-options":"-O3 -march=native"},"test-run-times":"77.67"}</JSON>
+      </Entry>
+    </Data>
+  </Result>
+  <Result>
+    <Identifier>pts/ramspeed-1.4.3</Identifier>
+    <Title>RAMspeed SMP</Title>
+    <AppVersion>3.5.0</AppVersion>
+    <Arguments>AVERAGE -b 6</Arguments>
+    <Description>Type: Average - Benchmark: Floating Point</Description>
+    <Scale>MB/s</Scale>
+    <Proportion>HIB</Proportion>
+    <DisplayFormat>BAR_GRAPH</DisplayFormat>
+    <Data>
+      <Entry>
+        <Identifier>power_bench_node5_8b877d3d6cea</Identifier>
+        <Value>22238.28</Value>
+        <RawString></RawString>
+        <JSON>{"compiler-options":{"compiler-type":"CC","compiler":"gcc","compiler-options":"-O3 -march=native"},"test-run-times":"77.62"}</JSON>
+      </Entry>
+    </Data>
+  </Result>
+  <Result>
+    <Identifier>pts/stream-1.3.5</Identifier>
+    <Title>Stream</Title>
+    <AppVersion>2013-01-17</AppVersion>
+    <Arguments>Copy</Arguments>
+    <Description>Type: Copy</Description>
+    <Scale>MB/s</Scale>
+    <Proportion>HIB</Proportion>
+    <DisplayFormat>BAR_GRAPH</DisplayFormat>
+    <Data>
+      <Entry>
+        <Identifier>power_bench_node5_8b877d3d6cea</Identifier>
+        <Value>31391.1</Value>
+        <RawString></RawString>
+        <JSON>{"compiler-options":{"compiler-type":"CC","compiler":"gcc","compiler-options":"-O3 -march=native -fopenmp"},"test-run-times":"35.98"}</JSON>
+      </Entry>
+    </Data>
+  </Result>
+  <Result>
+    <Identifier>pts/stream-1.3.5</Identifier>
+    <Title>Stream</Title>
+    <AppVersion>2013-01-17</AppVersion>
+    <Arguments>Scale</Arguments>
+    <Description>Type: Scale</Description>
+    <Scale>MB/s</Scale>
+    <Proportion>HIB</Proportion>
+    <DisplayFormat>BAR_GRAPH</DisplayFormat>
+    <Data>
+      <Entry>
+        <Identifier>power_bench_node5_8b877d3d6cea</Identifier>
+        <Value>19834.4</Value>
+        <RawString></RawString>
+        <JSON>{"compiler-options":{"compiler-type":"CC","compiler":"gcc","compiler-options":"-O3 -march=native -fopenmp"}}</JSON>
+      </Entry>
+    </Data>
+  </Result>
+  <Result>
+    <Identifier>pts/stream-1.3.5</Identifier>
+    <Title>Stream</Title>
+    <AppVersion>2013-01-17</AppVersion>
+    <Arguments>Triad</Arguments>
+    <Description>Type: Triad</Description>
+    <Scale>MB/s</Scale>
+    <Proportion>HIB</Proportion>
+    <DisplayFormat>BAR_GRAPH</DisplayFormat>
+    <Data>
+      <Entry>
+        <Identifier>power_bench_node5_8b877d3d6cea</Identifier>
+        <Value>21721.2</Value>
+        <RawString></RawString>
+        <JSON>{"compiler-options":{"compiler-type":"CC","compiler":"gcc","compiler-options":"-O3 -march=native -fopenmp"}}</JSON>
+      </Entry>
+    </Data>
+  </Result>
+  <Result>
+    <Identifier>pts/stream-1.3.5</Identifier>
+    <Title>Stream</Title>
+    <AppVersion>2013-01-17</AppVersion>
+    <Arguments>Add</Arguments>
+    <Description>Type: Add</Description>
+    <Scale>MB/s</Scale>
+    <Proportion>HIB</Proportion>
+    <DisplayFormat>BAR_GRAPH</DisplayFormat>
+    <Data>
+      <Entry>
+        <Identifier>power_bench_node5_8b877d3d6cea</Identifier>
+        <Value>21733.8</Value>
+        <RawString></RawString>
+        <JSON>{"compiler-options":{"compiler-type":"CC","compiler":"gcc","compiler-options":"-O3 -march=native -fopenmp"}}</JSON>
+      </Entry>
+    </Data>
+  </Result>
+  <Result>
+    <Identifier>pts/tinymembench-1.0.2</Identifier>
+    <Title>Tinymembench</Title>
+    <AppVersion>2018-05-28</AppVersion>
+    <Arguments></Arguments>
+    <Description>Standard Memcpy</Description>
+    <Scale>MB/s</Scale>
+    <Proportion>HIB</Proportion>
+    <DisplayFormat>BAR_GRAPH</DisplayFormat>
+    <Data>
+      <Entry>
+        <Identifier>power_bench_node5_8b877d3d6cea</Identifier>
+        <Value>11580.2</Value>
+        <RawString></RawString>
+        <JSON>{"compiler-options":{"compiler-type":"CC","compiler":"gcc","compiler-options":"-O2 -lm"},"test-run-times":"233.42"}</JSON>
+      </Entry>
+    </Data>
+  </Result>
+  <Result>
+    <Identifier>pts/tinymembench-1.0.2</Identifier>
+    <Title>Tinymembench</Title>
+    <AppVersion>2018-05-28</AppVersion>
+    <Arguments></Arguments>
+    <Description>Standard Memset</Description>
+    <Scale>MB/s</Scale>
+    <Proportion>HIB</Proportion>
+    <DisplayFormat>BAR_GRAPH</DisplayFormat>
+    <Data>
+      <Entry>
+        <Identifier>power_bench_node5_8b877d3d6cea</Identifier>
+        <Value>20840.7</Value>
+        <RawString></RawString>
+        <JSON>{"compiler-options":{"compiler-type":"CC","compiler":"gcc","compiler-options":"-O2 -lm"},"test-run-times":"233.42"}</JSON>
+      </Entry>
+    </Data>
+  </Result>
+  <Result>
+    <Identifier>pts/mbw-1.1.0</Identifier>
+    <Title>MBW</Title>
+    <AppVersion>2.0</AppVersion>
+    <Arguments>-t0 1024</Arguments>
+    <Description>pts/mbw memory benchmark</Description>
+    <Scale>MiB/s</Scale>
+    <Proportion>HIB</Proportion>
+    <DisplayFormat>BAR_GRAPH</DisplayFormat>
+    <Data>
+      <Entry>
+        <Identifier>power_bench_node5_8b877d3d6cea</Identifier>
+        <Value>12341.697</Value>
+        <RawString></RawString>
+        <JSON>{"compiler-options":{"compiler-type":"CC","compiler":"gcc","compiler-options":"-O3 -march=native"},"test-run-times":"9.03"}</JSON>
+      </Entry>
+    </Data>
+  </Result>
+</PhoronixTestSuite>
