@@ -61,7 +61,6 @@ DEFAULTS = {
     "hdd_apm_level": 254,
     "gpu_power_profile": "auto",
     "services_to_disable": [],
-    "nic_power_save": False,
     "scx_scheduler": "none",
     "scx_flags": "",
     "kernel_params": [],
@@ -136,10 +135,7 @@ EXPERIMENTS = [
         "bluetooth.service", "cups.service", "avahi-daemon.service", "ModemManager.service"]},
      "idle"),
 
-    # 12. NIC power
-    ("nic_power_save", {"nic_power_save": True}, "idle"),
-
-    # 13. sched_ext (SCX) schedulers
+    # 12. sched_ext (SCX) schedulers
     ("sched_ext=scx_lavd:powersave",    {"scx_scheduler": "scx_lavd",    "scx_flags": "--powersave"}, "load"),
     ("sched_ext=scx_lavd:performance",  {"scx_scheduler": "scx_lavd",    "scx_flags": "--performance"}, "load"),
     ("sched_ext=scx_bpfland:powersave", {"scx_scheduler": "scx_bpfland", "scx_flags": "-m powersave"}, "load"),
@@ -150,13 +146,12 @@ EXPERIMENTS = [
     # CPU". Keep it out of unattended sweeps until an upstream-compatible release
     # is deliberately audited on the target (the binary remains installed for that).
 
-    # 14. Kernel boot params (REBOOT to apply/clear; apply_optimizations reconciles GRUB)
+    # 13. Kernel boot params (REBOOT to apply/clear; apply_optimizations reconciles GRUB)
     ("kernel_params=pcie_aspm_force",      {"kernel_params": ["pcie_aspm=force"]}, "idle"),
     ("kernel_params=intel_pstate_passive", {"kernel_params": ["intel_pstate=passive"]}, "both"),
     # Disable SMT to measure the throughput/energy tradeoff of running one hardware
-    # thread per core. Disable the NMI watchdog separately to test its idle interrupt cost.
+    # thread per core.
     ("kernel_params=nosmt",          {"kernel_params": ["nosmt"]}, "both"),
-    ("kernel_params=nmi_watchdog_0", {"kernel_params": ["nmi_watchdog=0"]}, "idle"),
     # Security-sensitive diagnostic cases. These are never part of the default core
     # selection; run only on an isolated benchmark host with an explicit --only value.
     ("kernel_params=mitigations_off", {"kernel_params": ["mitigations=off"]}, "both"),
@@ -248,9 +243,8 @@ AMD_EXPERIMENTS = [
         "pcie_aspm_policy": "powersave",
     }, "both"),
 
-    # Architecture-independent boot controls, each isolated as one OFAT variant.
+    # Architecture-independent boot control, isolated as one OFAT variant.
     ("kernel_params=nosmt",          {"kernel_params": ["nosmt"]}, "both"),
-    ("kernel_params=nmi_watchdog_0", {"kernel_params": ["nmi_watchdog=0"]}, "idle"),
 
     # Architecture-independent, security-sensitive boot-parameter diagnostic cases.
     # They remain opt-in through --only and are reconciled back to an empty managed

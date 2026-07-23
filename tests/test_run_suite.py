@@ -138,10 +138,7 @@ class AmdSweepTests(unittest.TestCase):
         core = {label: overrides for label, overrides, _ in run_suite.EXPERIMENTS}
         self.assertEqual(core["max_perf_pct=95"], {"pstate_max_perf_pct": 95})
 
-        portable_kernel_variants = {
-            "kernel_params=nosmt": ["nosmt"],
-            "kernel_params=nmi_watchdog_0": ["nmi_watchdog=0"],
-        }
+        portable_kernel_variants = {"kernel_params=nosmt": ["nosmt"]}
         for sweep in ("core", "amd"):
             variants = {
                 label: overrides
@@ -149,6 +146,8 @@ class AmdSweepTests(unittest.TestCase):
             }
             for label, kernel_params in portable_kernel_variants.items():
                 self.assertEqual(variants[label], {"kernel_params": kernel_params})
+            self.assertNotIn("kernel_params=nmi_watchdog_0", variants)
+            self.assertNotIn("nic_power_save", variants)
 
     def test_combined_kernel_param_variant_dry_run(self):
         result = subprocess.run(
