@@ -368,7 +368,11 @@ def run_payload(
         run["host"] = run.get("host") or "unknown host"
         run["test"] = run.get("test") or "untitled"
         dropped = run.get("dropped_packets") or 0
-        if run["test"] == IDLE_TEST:
+        invalid_reason = run.get("invalid_reason")
+        if invalid_reason:
+            valid = False
+            reason = f"manually invalid: {invalid_reason}"
+        elif run["test"] == IDLE_TEST:
             valid = bool(run.get("idle_samples")) and dropped == 0
             reason = "valid idle capture" if valid else "needs idle samples"
         else:

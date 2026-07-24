@@ -40,6 +40,7 @@ def invalid_run_ids(connection: duckdb.DuckDBPyConnection) -> list[int]:
     complete = "r.bench_end IS NOT NULL" if "bench_end" in columns else "FALSE"
     scored = "r.bench_score IS NOT NULL" if "bench_score" in columns else "FALSE"
     coverage = "COALESCE(r.bench_sample_coverage, 0) >= 0.7" if "bench_sample_coverage" in columns else "FALSE"
+    invalid_reason = "r.invalid_reason IS NOT NULL" if "invalid_reason" in columns else "FALSE"
     readings = (
         "SELECT run_id, count(*) FILTER (WHERE phase = 'idle') AS idle_samples "
         "FROM readings GROUP BY run_id"
@@ -52,7 +53,7 @@ def invalid_run_ids(connection: duckdb.DuckDBPyConnection) -> list[int]:
         SELECT r.run_id
         FROM runs r
         LEFT JOIN run_readings rr ON rr.run_id = r.run_id
-        WHERE CASE
+        WHERE {invalid_reason} OR CASE
             WHEN COALESCE(r.test, '') = 'idle'
                 THEN COALESCE(rr.idle_samples, 0) = 0 OR {dropped}
             ELSE NOT ({complete} AND {scored} AND {coverage}) OR {dropped}
