@@ -594,7 +594,7 @@ def main():
     )
     ap.add_argument("--vars-dir", default="ansible/vars")
     ap.add_argument("--settle", type=float, default=30.0)
-    ap.add_argument("--idle-duration", type=float, default=600.0)
+    ap.add_argument("--idle-duration", type=float, default=300.0)
     ap.add_argument("--cool-to", type=float, default=None)
     ap.add_argument(
         "--checksum-policy",

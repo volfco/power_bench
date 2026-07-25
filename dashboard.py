@@ -227,6 +227,7 @@ class DatabaseReader:
             bench_end = "r.bench_end IS NOT NULL" if "bench_end" in columns else "FALSE"
             bench_score = "r.bench_score IS NOT NULL" if "bench_score" in columns else "FALSE"
             bench_unit = "r.bench_unit" if "bench_unit" in columns else "NULL"
+            invalid_reason = "r.invalid_reason" if "invalid_reason" in columns else "NULL"
             readings_cte = (
                 """
                 run_readings AS (
@@ -249,6 +250,7 @@ class DatabaseReader:
             )
             valid = f"""
                 CASE
+                    WHEN {invalid_reason} IS NOT NULL THEN FALSE
                     WHEN coalesce(r.test, '') = ?
                         THEN coalesce(rr.idle_samples, 0) > 0 AND {dropped} = 0
                     ELSE {bench_end} AND {bench_score} AND {sample_coverage} >= 0.9 AND {dropped} = 0
@@ -322,6 +324,7 @@ class DatabaseReader:
             scored = "r.bench_score IS NOT NULL" if "bench_score" in columns else "FALSE"
             energy = "r.energy_wh_integrated" if "energy_wh_integrated" in columns else "NULL"
             score = "r.bench_score" if "bench_score" in columns else "NULL"
+            invalid_reason = "r.invalid_reason" if "invalid_reason" in columns else "NULL"
             readings = """
                 run_readings AS (
                     SELECT run_id, count(*) FILTER (WHERE phase = 'idle') AS idle_samples,
@@ -335,7 +338,7 @@ class DatabaseReader:
                            CAST(NULL AS DOUBLE) AS idle_power_w, CAST(NULL AS DOUBLE) AS bench_power_w WHERE FALSE
                 )
             """
-            valid = f"""CASE WHEN coalesce(r.test, '') = ? THEN coalesce(rr.idle_samples, 0) > 0 AND {dropped} = 0 ELSE {complete} AND {scored} AND {coverage} >= 0.9 AND {dropped} = 0 END"""
+            valid = f"""CASE WHEN {invalid_reason} IS NOT NULL THEN FALSE WHEN coalesce(r.test, '') = ? THEN coalesce(rr.idle_samples, 0) > 0 AND {dropped} = 0 ELSE {complete} AND {scored} AND {coverage} >= 0.9 AND {dropped} = 0 END"""
             return rows_as_dicts(conn.execute(
                 f"""
                 WITH {readings}

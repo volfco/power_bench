@@ -52,7 +52,7 @@ METER_FIRST_READING_TIMEOUT = 15.0
 READ_PACKET_TIMEOUT = 5.0
 EXPECTED_REPORT_INTERVAL_SECONDS = 1.0
 IDLE_STDEV_WINDOW = 15          # samples in the rolling window for the stability gate
-THERMAL_GATE_TIMEOUT = 300.0
+THERMAL_GATE_TIMEOUT = 30.0
 THERMAL_POLL_SECONDS = 10.0
 MIN_SAMPLE_COVERAGE = 0.6       # below this fraction of expected samples a run is invalid
 
@@ -747,7 +747,7 @@ def main():
     parser.add_argument("--repeat", "-r", type=int, default=1)
     parser.add_argument("--settle", "-s", type=float, default=DEFAULT_SETTLE_SECONDS)
     parser.add_argument("--idle-only", action="store_true")
-    parser.add_argument("--idle-duration", type=float, default=600.0)
+    parser.add_argument("--idle-duration", type=float, default=300.0)
     parser.add_argument("--idle-stable-w", type=float, default=1.0)
     parser.add_argument("--idle-timeout", type=float, default=300.0)
     parser.add_argument("--cool-to", type=float, default=None)

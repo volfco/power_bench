@@ -98,6 +98,7 @@ MIGRATIONS = [
     "ALTER TABLE runs ADD COLUMN IF NOT EXISTS energy_wh_integrated DOUBLE",
     "ALTER TABLE runs ADD COLUMN IF NOT EXISTS bench_sample_coverage DOUBLE",
     "ALTER TABLE runs ADD COLUMN IF NOT EXISTS checksum_failures INTEGER",
+    "ALTER TABLE runs ADD COLUMN IF NOT EXISTS invalid_reason VARCHAR",
 ]
 
 # Columns that create_run()/update_run() are allowed to write (guards against
@@ -109,7 +110,7 @@ _RUN_COLUMNS = {
     "idle_start", "bench_start", "bench_end",
     "energy_wh_integrated", "energy_wh_bench_start", "energy_wh_bench_end",
     "bench_score", "bench_unit", "higher_is_better", "dropped_packets",
-    "checksum_failures", "bench_sample_coverage",
+    "checksum_failures", "bench_sample_coverage", "invalid_reason",
 }
 
 
