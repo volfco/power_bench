@@ -6,6 +6,8 @@ on:
     paths:
       - benchmarks/power_meter.duckdb
       - scripts/build_duckdb_report.py
+      - host_metadata.py
+      - tests/test_host_metadata.py
       - scripts/report_template.html
       - scripts/run_report_template.html
       - tests/test_build_duckdb_report.py
@@ -50,7 +52,7 @@ jobs:
         run: python -m pip install --disable-pip-version-check 'duckdb>=1.0'
 
       - name: Validate report generator
-        run: python -m unittest tests.test_build_duckdb_report
+        run: python -m unittest tests.test_build_duckdb_report tests.test_host_metadata
 
       - name: Generate report site
         run: |

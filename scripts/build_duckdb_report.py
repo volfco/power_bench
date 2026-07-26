@@ -17,6 +17,7 @@ import duckdb
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from run_suite import EXPERIMENTS, AMD_EXPERIMENTS
+from host_metadata import enrich_host_metadata
 
 
 DEFAULT_ROW_LIMIT = 250
@@ -46,6 +47,11 @@ def config_architecture_map() -> dict[str, str]:
 TEMPLATE = Path(__file__).with_name("report_template.html")
 RUN_TEMPLATE = Path(__file__).with_name("run_report_template.html")
 HOST_SPEC_FIELDS = (
+    ("host_group", "Host group"),
+    ("hardware_generation", "Hardware generation"),
+    ("system_vendor", "System vendor"),
+    ("system_model", "System model"),
+    ("chassis_type", "DMI chassis type"),
     ("cpu_model", "CPU model"),
     ("memory_bytes", "Memory"),
     ("kernel", "Kernel"),
@@ -77,6 +83,11 @@ RUN_FIELDS = (
     "kernel",
     "cpu_model",
     "memory_bytes",
+    "system_vendor",
+    "system_model",
+    "chassis_type",
+    "host_group",
+    "hardware_generation",
     "governor",
     "turbo",
     "ambient_c",
@@ -91,6 +102,7 @@ RUN_FIELDS = (
     "dropped_packets",
     "checksum_failures",
     "bench_sample_coverage",
+    "invalid_reason",
 )
 
 
@@ -133,6 +145,21 @@ def json_mapping(value: Any) -> dict[str, Any]:
 
 def present(value: Any) -> bool:
     return value is not None and str(value).strip() != ""
+
+
+def enrich_run_metadata(run: dict[str, Any]) -> None:
+    """Fill host dimensions from explicit columns, snapshots, or legacy CPU text."""
+    config = json_mapping(run.get("applied_config"))
+    for field in (
+        "system_vendor",
+        "system_model",
+        "chassis_type",
+        "host_group",
+        "hardware_generation",
+    ):
+        if not present(run.get(field)) and present(config.get(field)):
+            run[field] = config[field]
+    run.update(enrich_host_metadata(run))
 
 
 def host_config_payload(runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -364,6 +391,7 @@ def run_payload(
     completion_recorded = "bench_end" in columns
 
     for run in runs:
+        enrich_run_metadata(run)
         run["optimization"] = run.get("optimization") or "baseline"
         run["host"] = run.get("host") or "unknown host"
         run["test"] = run.get("test") or "untitled"
@@ -456,6 +484,10 @@ def report_payload(
             "hosts": sorted({run["host"] for run in runs}),
             "tests": sorted({run["test"] for run in runs}),
             "configurations": sorted({run["optimization"] for run in runs}),
+            "hostGroups": sorted({run["host_group"] for run in runs}),
+            "hardwareGenerations": sorted(
+                {run["hardware_generation"] for run in runs}
+            ),
             "configArchitecture": config_architecture_map(),
         },
         "runs": runs,

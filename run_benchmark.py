@@ -44,6 +44,7 @@ from database import Database
 from meter_ble import MeterConnection
 from atorch_protocol import parse_report, verify_checksum, MAGIC_HEADER, MessageType
 from pts_results import parse_composite_xml
+from host_metadata import enrich_host_metadata
 
 logger = logging.getLogger("run_benchmark")
 
@@ -144,6 +145,24 @@ def reboot_host(host: str, user: str | None = None, key: str | None = None, time
     return False
 
 
+def _parse_host_info(output: str, field_map: dict[str, str]) -> dict:
+    info = {column: None for column in field_map.values()}
+    for line in output.splitlines():
+        key, _, value = line.partition("=")
+        if key not in field_map:
+            continue
+        field = field_map[key]
+        parsed = value.strip() or None
+        if field == "chassis_type" and parsed is not None:
+            try:
+                parsed = int(parsed)
+            except ValueError:
+                parsed = None
+        info[field] = parsed
+    info.update(enrich_host_metadata(info))
+    return info
+
+
 def gather_host_info(host: str, user: str | None = None, key: str | None = None) -> dict:
     """Best-effort post-apply snapshot of the host's power-relevant configuration.
 
@@ -155,6 +174,9 @@ def gather_host_info(host: str, user: str | None = None, key: str | None = None)
         'echo "kernel=$(uname -r)"; '
         "echo \"cpu=$(LC_ALL=C lscpu | sed -n 's/^Model name:[[:space:]]*//p' | head -1)\"; "
         "echo \"memory_bytes=$(awk '/MemTotal:/{printf \"%.0f\", $2 * 1024}' /proc/meminfo)\"; "
+        'echo "system_vendor=$(cat /sys/class/dmi/id/sys_vendor 2>/dev/null)"; '
+        'echo "system_model=$(cat /sys/class/dmi/id/product_name 2>/dev/null)"; '
+        'echo "chassis_type=$(cat /sys/class/dmi/id/chassis_type 2>/dev/null)"; '
         'echo "governor=$(cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor 2>/dev/null)"; '
         # intel_pstate no_turbo: 0 = turbo on. cpufreq boost (AMD/acpi): 1 = turbo on
         # (inverted sense) — normalize both to on/off here.
@@ -171,19 +193,18 @@ def gather_host_info(host: str, user: str | None = None, key: str | None = None)
         "echo \"io=$d:$(sed -n 's/.*\\[\\(.*\\)\\].*/\\1/p' \"$q\")\"; break; done; "
         'echo "cmdline=$(cat /proc/cmdline)"'
     )
-    field_map = {"kernel": "kernel", "cpu": "cpu_model", "memory_bytes": "memory_bytes", "governor": "governor",
+    field_map = {"kernel": "kernel", "cpu": "cpu_model", "memory_bytes": "memory_bytes",
+                 "system_vendor": "system_vendor", "system_model": "system_model",
+                 "chassis_type": "chassis_type", "governor": "governor",
                  "turbo": "turbo", "driver": "scaling_driver", "epp": "epp",
                  "aspm": "aspm_policy", "io": "io_scheduler", "cmdline": "cmdline"}
-    info = {column: None for column in field_map.values()}
+    info = _parse_host_info("", field_map)
     try:
         r = subprocess.run(
             ssh_command(host, script, user, key),
             capture_output=True, text=True, timeout=15,
         )
-        for line in r.stdout.splitlines():
-            key_, _, value = line.partition("=")
-            if key_ in field_map:
-                info[field_map[key_]] = value.strip() or None
+        info = _parse_host_info(r.stdout, field_map)
     except (subprocess.SubprocessError, OSError) as exc:
         logger.warning("Could not gather host info: %s", exc)
     return info

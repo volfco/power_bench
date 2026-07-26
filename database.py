@@ -12,10 +12,12 @@ A single database holds three tables:
                     suites); ``runs.bench_score`` keeps the first/primary one.
 """
 
+import json
 import os
 
 import duckdb
 from atorch_protocol import MeterReading
+from host_metadata import enrich_host_metadata
 
 CREATE_READINGS_SEQ = "CREATE SEQUENCE IF NOT EXISTS readings_seq START 1"
 CREATE_RUNS_SEQ = "CREATE SEQUENCE IF NOT EXISTS runs_seq START 1"
@@ -32,6 +34,11 @@ CREATE TABLE IF NOT EXISTS runs (
     kernel                VARCHAR,
     cpu_model             VARCHAR,
     memory_bytes          BIGINT,
+    system_vendor         VARCHAR,
+    system_model          VARCHAR,
+    chassis_type          INTEGER,
+    host_group            VARCHAR,
+    hardware_generation   VARCHAR,
     governor              VARCHAR,
     turbo                 VARCHAR,
     ambient_c             DOUBLE,
@@ -99,13 +106,20 @@ MIGRATIONS = [
     "ALTER TABLE runs ADD COLUMN IF NOT EXISTS bench_sample_coverage DOUBLE",
     "ALTER TABLE runs ADD COLUMN IF NOT EXISTS checksum_failures INTEGER",
     "ALTER TABLE runs ADD COLUMN IF NOT EXISTS invalid_reason VARCHAR",
+    "ALTER TABLE runs ADD COLUMN IF NOT EXISTS system_vendor VARCHAR",
+    "ALTER TABLE runs ADD COLUMN IF NOT EXISTS system_model VARCHAR",
+    "ALTER TABLE runs ADD COLUMN IF NOT EXISTS chassis_type INTEGER",
+    "ALTER TABLE runs ADD COLUMN IF NOT EXISTS host_group VARCHAR",
+    "ALTER TABLE runs ADD COLUMN IF NOT EXISTS hardware_generation VARCHAR",
 ]
 
 # Columns that create_run()/update_run() are allowed to write (guards against
 # accidental SQL injection via keyword names).
 _RUN_COLUMNS = {
     "host", "test", "optimization", "repeat_idx", "config_hash",
-    "kernel", "cpu_model", "memory_bytes", "governor", "turbo", "ambient_c", "result_name",
+    "kernel", "cpu_model", "memory_bytes", "system_vendor", "system_model",
+    "chassis_type", "host_group", "hardware_generation",
+    "governor", "turbo", "ambient_c", "result_name",
     "applied_config", "bench_start_temp_c",
     "idle_start", "bench_start", "bench_end",
     "energy_wh_integrated", "energy_wh_bench_start", "energy_wh_bench_end",
@@ -131,6 +145,48 @@ class Database:
         self._conn.execute(CREATE_RUN_RESULTS_SQL)
         for stmt in MIGRATIONS:
             self._conn.execute(stmt)
+        self._backfill_host_metadata()
+
+    def _backfill_host_metadata(self):
+        """Populate new dimensions for legacy rows from recorded host snapshots."""
+        rows = self._conn.execute(
+            """
+            SELECT run_id, cpu_model, system_vendor, system_model, chassis_type,
+                   host_group, hardware_generation, applied_config
+            FROM runs
+            WHERE host_group IS NULL OR hardware_generation IS NULL
+            """
+        ).fetchall()
+        for row in rows:
+            fields = dict(
+                zip(
+                    (
+                        "run_id", "cpu_model", "system_vendor", "system_model",
+                        "chassis_type", "host_group", "hardware_generation",
+                        "applied_config",
+                    ),
+                    row,
+                )
+            )
+            try:
+                snapshot = json.loads(fields["applied_config"] or "{}")
+            except (json.JSONDecodeError, TypeError):
+                snapshot = {}
+            for name in ("system_vendor", "system_model", "chassis_type"):
+                fields[name] = fields[name] or snapshot.get(name)
+            fields.update(enrich_host_metadata(fields))
+            self._conn.execute(
+                """
+                UPDATE runs SET system_vendor = ?, system_model = ?, chassis_type = ?,
+                                host_group = ?, hardware_generation = ?
+                WHERE run_id = ?
+                """,
+                [
+                    fields["system_vendor"], fields["system_model"],
+                    fields["chassis_type"], fields["host_group"],
+                    fields["hardware_generation"], fields["run_id"],
+                ],
+            )
 
     def close(self):
         if self._conn:

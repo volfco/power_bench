@@ -17,6 +17,7 @@ import math
 import mimetypes
 import os
 import sqlite3
+from html import escape
 from datetime import date, datetime
 from decimal import Decimal
 from http import HTTPStatus
@@ -28,6 +29,15 @@ from urllib.parse import parse_qs, urlparse
 import duckdb
 
 from run_suite import EXPERIMENTS, AMD_EXPERIMENTS, IDLE_TEST, PERF_FLOOR_TEST
+from scripts.build_duckdb_report import (
+    RUN_TEMPLATE,
+    TEMPLATE,
+    report_payload,
+    run_detail_payload,
+    run_payload,
+    safe_json_script,
+    table_names as report_table_names,
+)
 
 
 ROOT = Path(__file__).resolve().parent
@@ -83,6 +93,43 @@ class DatabaseReader:
 
     def connect(self) -> duckdb.DuckDBPyConnection:
         return duckdb.connect(str(self.path), read_only=True)
+
+    def report_page(self) -> str:
+        """Render the shared report UI against the current database."""
+        with self.connect() as conn:
+            payload = report_payload(conn, MAX_RUNS)
+        embedded = {
+            **payload,
+            "runs": [
+                {key: value for key, value in run.items() if key != "applied_config"}
+                for run in payload["runs"]
+            ],
+        }
+        return (
+            TEMPLATE.read_text(encoding="utf-8")
+            .replace("__REPORT_DATA__", safe_json_script(embedded))
+            .replace("__GENERATED_AT__", escape(payload["meta"]["generatedAt"]))
+            .replace("__DATABASE_NAME__", escape(self.path.name))
+            .replace("__ROW_LIMIT__", f"{MAX_RUNS:,}")
+        )
+
+    def run_page(self, run_id: int) -> str | None:
+        """Render one live run-detail page without writing generated files."""
+        with self.connect() as conn:
+            tables = set(report_table_names(conn))
+            run = next(
+                (item for item in run_payload(conn, tables) if item["run_id"] == run_id),
+                None,
+            )
+            if run is None:
+                return None
+            payload = run_detail_payload(conn, tables, run)
+        return (
+            RUN_TEMPLATE.read_text(encoding="utf-8")
+            .replace("__RUN_DATA__", safe_json_script(payload))
+            .replace("__RUN_ID__", escape(str(run_id)))
+            .replace("__REPORT_FILENAME__", "/")
+        )
 
     def table_names(self, conn: duckdb.DuckDBPyConnection) -> set[str]:
         return {
@@ -463,7 +510,25 @@ class DashboardHandler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:  # noqa: N802 (HTTP method name is prescribed)
         parsed = urlparse(self.path)
         if parsed.path in ("/", "/index.html"):
-            self.send_bytes(HTTPStatus.OK, PAGE.encode("utf-8"), "text/html; charset=utf-8")
+            self.send_bytes(
+                HTTPStatus.OK,
+                self.reader.report_page().encode("utf-8"),
+                "text/html; charset=utf-8",
+            )
+            return
+        if parsed.path.startswith("/runs/") and parsed.path.endswith(".html"):
+            try:
+                run_id = int(parsed.path.removeprefix("/runs/").removesuffix(".html"))
+            except ValueError:
+                self.send_error_json(HTTPStatus.BAD_REQUEST, "Run id must be an integer.")
+                return
+            page = self.reader.run_page(run_id)
+            if page is None:
+                self.send_error_json(HTTPStatus.NOT_FOUND, f"Run {run_id} was not found.")
+                return
+            self.send_bytes(
+                HTTPStatus.OK, page.encode("utf-8"), "text/html; charset=utf-8"
+            )
             return
         if parsed.path == "/api/overview":
             self.send_json(self.reader.overview())

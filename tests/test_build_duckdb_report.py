@@ -128,6 +128,10 @@ class DuckDbReportTests(unittest.TestCase):
         payload = self.embedded_payload(report)
 
         self.assertEqual(payload["meta"]["hosts"], ["alpha", "beta"])
+        self.assertEqual(payload["meta"]["hostGroups"], ["Unclassified"])
+        self.assertEqual(
+            payload["meta"]["hardwareGenerations"], ["alpha-cpu", "beta-cpu"]
+        )
         self.assertEqual(payload["meta"]["validRunCount"], 8)
         self.assertEqual(payload["meta"]["runCount"], 9)
         self.assertEqual(
@@ -160,6 +164,12 @@ class DuckDbReportTests(unittest.TestCase):
         self.assertIn('id="heatmap"', report)
         self.assertIn('id="hostFilter"', report)
         self.assertIn('id="metricFilter"', report)
+        self.assertIn('id="hostGroupFilter"', report)
+        self.assertIn('id="generationFilter"', report)
+        self.assertIn('id="testWinners"', report)
+        self.assertIn('value="power_first"', report)
+        self.assertIn('value="performance_first"', report)
+        self.assertIn("function decisionScore(", report)
         self.assertIn("function metric(", report)
         self.assertIn("function renderRuns(", report)
         self.assertIn('id="hostConfigs"', report)
@@ -262,6 +272,13 @@ class DuckDbReportTests(unittest.TestCase):
         self.assertIn('function renderHostComparisons(', PAGE)
         self.assertEqual(PAGE.count(":{y:null}"), 2)
         self.assertNotIn("n:r.valid_count}:null", PAGE)
+        live_report = DatabaseReader(self.database).report_page()
+        self.assertIn('id="testWinners"', live_report)
+        self.assertIn('value="power_first"', live_report)
+        self.assertIn('value="performance_first"', live_report)
+        live_detail = DatabaseReader(self.database).run_page(2)
+        self.assertIsNotNone(live_detail)
+        self.assertIn('id="runData"', live_detail)
 
 
 if __name__ == "__main__":

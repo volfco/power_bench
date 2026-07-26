@@ -69,7 +69,7 @@ def main(argv: list[str] | None = None) -> int:
         str(ROOT / "run_suite.py"),
         args.host,
         "--repeats",
-        "2",
+        "3",
         "--skip-existing",
         "--run-cap",
         "3",
