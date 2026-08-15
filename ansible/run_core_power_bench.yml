@@ -22,11 +22,11 @@
 # selected with power_bench_only=['stack=amd_performance+pcie_aspm'].
 #
 # Required per node (usually inventory host variables):
-#   power_bench_meter_mac: "45:AF:4E:55:56:06"
+#   power_bench_meter_mac: "46:AF:4E:55:56:06"
 #
 # Example:
 #   ansible-playbook -i ansible/hosts ansible/run_core_power_bench.yml --limit node2 \
-#     -e power_bench_meter_mac=45:AF:4E:55:56:06
+#     -e power_bench_meter_mac=46:AF:4E:55:56:06
 # Add `-e power_bench_dry_run=true` to print the exact setup command and selected
 # matrix without changing the target, reading the meter, or rebooting.
 #

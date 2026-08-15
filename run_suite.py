@@ -8,12 +8,12 @@ test suite. Each iteration:
      (ansible/vars/iter_<NNNN>_<label>.yml),
   2. applies it with apply_optimizations.yml (which verifies every knob took effect),
   3. runs run_benchmark.py (logs every valid meter packet, stores the result, then
-     reboots the host),
+     dwells idle for --idle-after seconds instead of rebooting),
 
-so every iteration begins on a freshly booted baseline — the reboot is the reset. If an
-apply or benchmark fails, the host is rebooted before the next iteration so a failed run
-can never leak its knobs, and the sweep ends with one reconcile-to-defaults apply so a
-trailing kernel_params variant can't leave GRUB dirty.
+so every iteration applies its own knobs on top of the previous run — the per-run apply is
+now the reset, not a reboot. If an apply or benchmark fails, the host is rebooted before the
+next iteration so a failed run can never leak its knobs, and the sweep ends with one
+reconcile-to-defaults apply so a trailing kernel_params variant can't leave GRUB dirty.
 
 Each variant is tagged with the objective it targets: 'load'/'both' variants run the full
 --tests list; 'idle' variants run a dedicated --idle-only measurement plus one quick load
@@ -25,7 +25,7 @@ The host argument is an exact Ansible inventory alias. Connection details and th
 sweep profile are read from that inventory entry.
 
 Examples:
-  python run_suite.py node2 --mac 45:AF:4E:55:56:06 \
+  python run_suite.py node2 --mac 46:AF:4E:55:56:06 \
       --checksum-policy warn --cool-to 55
   python run_suite.py node2 --only cpu_governor sched_ext
   python run_suite.py node2 --inventory inventory.yml

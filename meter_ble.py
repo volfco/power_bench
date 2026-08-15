@@ -92,7 +92,24 @@ class MeterConnection:
             logger.info("Found SPP meter %s (%s)", devices[0].name, spp_address)
 
         self._spp = SppMeterConnection(spp_address, timeout=self.timeout)
-        return await self._spp.connect()
+        try:
+            return await self._spp.connect()
+        except (RuntimeError, OSError):
+            if not self.mac_address:
+                raise
+            # A passed MAC can be the meter's BLE/random address, but RFCOMM needs
+            # the public BR/EDR address; re-discover via inquiry and retry.
+            logger.warning(
+                "SPP connect to %s failed; re-discovering Classic address",
+                spp_address,
+            )
+            devices = await asyncio.to_thread(discover_atorch_spp_devices, self.timeout)
+            if not devices:
+                raise
+            spp_address = devices[0].address
+            logger.info("Retrying SPP with discovered address %s", spp_address)
+            self._spp = SppMeterConnection(spp_address, timeout=self.timeout)
+            return await self._spp.connect()
 
     async def read_packet(self, timeout: float | None = None) -> bytes:
         if self._spp is not None:

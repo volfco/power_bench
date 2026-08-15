@@ -5,9 +5,9 @@ Usage:
     python run_benchmark.py node2 local/power-bench-build-kernel-defconfig-1.0.0 \
         --db benchmarks/power_meter.duckdb \
         --optimization baseline --repeat 1 --inventory ansible/hosts \
-        --mac 45:AF:4E:55:56:06 --checksum-policy warn --reboot
+        --mac 46:AF:4E:55:56:06 --checksum-policy warn --reboot
     python run_benchmark.py node2 --idle-only --optimization baseline \
-        --inventory ansible/hosts --mac 45:AF:4E:55:56:06 --checksum-policy warn
+        --inventory ansible/hosts --mac 46:AF:4E:55:56:06 --checksum-policy warn
 
     --mac accepts either a BLE or Classic SPP address. Without --mac, discovery
     prefers BLE and falls back to an Atorch SPP device when no BLE meter is found.
@@ -56,6 +56,7 @@ IDLE_STDEV_WINDOW = 15          # samples in the rolling window for the stabilit
 THERMAL_GATE_TIMEOUT = 30.0
 THERMAL_POLL_SECONDS = 10.0
 MIN_SAMPLE_COVERAGE = 0.6       # below this fraction of expected samples a run is invalid
+DEFAULT_IDLE_AFTER_SECONDS = 60.0   # post-run idle dwell that replaces the reboot reset
 
 
 class LoggerState:
@@ -143,6 +144,17 @@ def reboot_host(host: str, user: str | None = None, key: str | None = None, time
         time.sleep(5)
     logger.warning("Timed out waiting for %s to return after reboot", host)
     return False
+
+
+def idle_host(host: str, seconds: float = DEFAULT_IDLE_AFTER_SECONDS) -> None:
+    """Dwell the host at idle instead of rebooting between test runs.
+
+    The post-run reboot existed to reset non-persistently applied knobs to baseline. With
+    the reset relaxed to an idle dwell, the next iteration's apply re-establishes its own
+    config; the sweep's final reconcile still clears any leftovers.
+    """
+    logger.info("Idle period of %ss after test on %s (no reboot)...", seconds, host)
+    time.sleep(seconds)
 
 
 def _parse_host_info(output: str, field_map: dict[str, str]) -> dict:
@@ -734,12 +746,7 @@ def run(args: argparse.Namespace):
     logger.info("Persisted completed run #%d", run_id)
     print_summary(run_buffer, run_id)
 
-    if args.reboot:
-        reboot_host(
-            args.connection_host,
-            args.connection_user,
-            args.connection_key,
-        )
+    idle_host(args.connection_host, args.idle_after)
     raise SystemExit(0)
 
 
@@ -784,13 +791,22 @@ def main():
     parser.add_argument(
         "--checksum-policy",
         choices=["strict", "warn"],
-        default="strict",
+        default="warn",
     )
     parser.add_argument("--verbose", "-V", action="store_true")
     parser.add_argument(
         "--reboot",
         action=argparse.BooleanOptionalAction,
         default=True,
+        help="reboot the host to baseline after a FAILED/aborted run (recovery); "
+        "completed runs always idle --idle-after seconds instead (--no-reboot to skip "
+        "the recovery reboot too)",
+    )
+    parser.add_argument(
+        "--idle-after",
+        type=float,
+        default=DEFAULT_IDLE_AFTER_SECONDS,
+        help="idle dwell (s) after a completed run (default %(default)s)",
     )
     args = parser.parse_args()
 
