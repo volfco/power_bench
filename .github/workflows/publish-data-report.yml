@@ -4,7 +4,7 @@ on:
   push:
     branches: [master]
     paths:
-      - benchmarks/power_meter.duckdb
+      - power_meter.duckdb
       - scripts/build_duckdb_report.py
       - host_metadata.py
       - tests/test_host_metadata.py
@@ -64,7 +64,7 @@ jobs:
             printf '%s\n' '' '[View the generated benchmark data report](data-report.html)'
           } > site/index.md
           python scripts/build_duckdb_report.py \
-            --database benchmarks/power_meter.duckdb \
+            --database power_meter.duckdb \
             --output site/data-report.html
 
       - name: Build site
