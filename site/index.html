@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Power Bench Report</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+<style>
+  :root { --bg:#0f1115; --panel:#181c23; --line:#2a303b; --text:#e6e9ef; --dim:#8a93a3; --acc:#4da3ff; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:14px/1.45 system-ui,sans-serif; }
+  header { display:flex; gap:1.5rem; align-items:center; padding:.7rem 1.2rem; border-bottom:1px solid var(--line); position:sticky; top:0; background:var(--bg); z-index:10; }
+  header h1 { font-size:1rem; margin:0; }
+  nav a { color:var(--dim); text-decoration:none; margin-right:1rem; padding:.25rem .5rem; border-radius:4px; }
+  nav a.active { color:var(--text); background:var(--panel); }
+  main { padding:1.2rem; max-width:1200px; margin:0 auto; }
+  h2 { font-size:1.15rem; } h3 { font-size:1rem; color:var(--dim); }
+  table { border-collapse:collapse; width:100%; margin:.8rem 0; }
+  th, td { border:1px solid var(--line); padding:.35rem .6rem; text-align:left; white-space:nowrap; }
+  th { background:var(--panel); position:sticky; top:3rem; }
+  td.num { text-align:right; font-variant-numeric:tabular-nums; }
+  tr.click { cursor:pointer; } tr.click:hover { background:var(--panel); }
+  .scale-0 { color:#ff7b72; } .scale-25 { color:#ffa657; } .scale-75 { color:#7ee787; } .scale-100 { color:#56d4dd; }
+  .empty { color:var(--dim); padding:2rem 0; }
+  select, input { background:var(--panel); color:var(--text); border:1px solid var(--line); padding:.35rem .5rem; border-radius:4px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:.6rem; margin:.8rem 0; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:6px; padding:.6rem .8rem; }
+  .card b { display:block; font-size:.75rem; color:var(--dim); font-weight:normal; }
+  #chart-box { background:var(--panel); border:1px solid var(--line); border-radius:6px; padding:1rem; max-width:900px; }
+  .back { color:var(--acc); text-decoration:none; }
+</style>
+</head>
+<body>
+<header>
+  <h1>⚡ Power Bench</h1>
+  <nav>
+    <a href="#/hosts">Hosts</a>
+    <a href="#/configs">Configurations</a>
+    <a href="#/runs">Runs</a>
+  </nav>
+</header>
+<main id="app"><div class="empty">Loading…</div></main>
+
+<script>
+let DATA = null;
+const app = document.getElementById('app');
+const SCALE_LABEL = { 0:'Max performance', 25:'Performance', 75:'Powersave', 100:'Max powersave' };
+const PHASES = ['settle','idle','bench','cooldown'];
+const esc = s => String(s ?? '—').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const fmt = (v, d=2) => v == null ? '—' : Number(v).toFixed(d);
+const dt = s => s ? new Date(s).toLocaleString() : '—';
+
+function nav(route) {
+  document.querySelectorAll('nav a').forEach(a =>
+    a.classList.toggle('active', route.startsWith(a.hash.slice(1))));
+}
+
+// ---------- Host overview ----------
+function viewHosts() {
+  nav('#/hosts');
+  const runs = DATA.runs;
+  if (!runs.length) { app.innerHTML = '<div class="empty">No runs recorded yet.</div>'; return; }
+  const tests = [...new Set(runs.map(r => r.test).filter(Boolean))].sort();
+  // group hosts by host_group, falling back to cpu model / hostname
+  const groups = {};
+  for (const r of runs) {
+    const g = r.host_group || r.host || '?';
+    (groups[g] ??= {})[r.host || '?'] ??= { counts:{}, total:0 };
+    const h = groups[g][r.host || '?'];
+    h.counts[r.test] = (h.counts[r.test] || 0) + 1;
+    h.total++;
+  }
+  let html = '<h2>Host overview — run counts per host × test</h2>';
+  for (const [g, hosts] of Object.entries(groups)) {
+    html += `<h3>${esc(g)}</h3><table><tr><th>Host</th>${tests.map(t => `<th>${esc(t)}</th>`).join('')}<th>Total</th></tr>`;
+    for (const [host, info] of Object.entries(hosts).sort((a,b) => b[1].total - a[1].total)) {
+      html += `<tr><td><b>${esc(host)}</b></td>` +
+        tests.map(t => `<td class="num">${info.counts[t] ? info.counts[t] : '<span style="color:var(--dim)">·</span>'}</td>`).join('') +
+        `<td class="num"><b>${info.total}</b></td></tr>`;
+    }
+    html += '</table>';
+  }
+  app.innerHTML = html;
+}
+
+// ---------- Configuration explorer ----------
+function viewConfigs(test) {
+  nav('#/configs');
+  const runs = DATA.runs;
+  if (!runs.length) { app.innerHTML = '<div class="empty">No runs recorded yet.</div>'; return; }
+  const tests = [...new Set(runs.map(r => r.test).filter(Boolean))].sort();
+  test = tests.includes(test) ? test : tests[0];
+  const subset = runs.filter(r => r.test === test);
+
+  // per scale point: best score + mean energy/power + member configs
+  const byScale = {};
+  for (const v of [0,25,75,100]) byScale[v] = [];
+  for (const r of subset) if (r.scale != null) byScale[r.scale].push(r);
+  const best = (rs) => {
+    const scored = rs.filter(r => r.bench_score != null);
+    if (!scored.length) return null;
+    const hib = scored[0].higher_is_better !== false;
+    return scored.reduce((a,b) => (hib ? b.bench_score > a.bench_score : b.bench_score < a.bench_score) ? b : a);
+  };
+  const mean = (rs, k) => { const vs = rs.map(r => r[k]).filter(v => v != null); return vs.length ? vs.reduce((a,b)=>a+b)/vs.length : null; };
+
+  let html = `<h2>Configuration results — ${esc(test)}</h2>
+    <p>Test: <select onchange="location.hash='#/configs/'+encodeURIComponent(this.value)">
+      ${tests.map(t => `<option ${t===test?'selected':''}>${esc(t)}</option>`).join('')}
+    </select></p>`;
+  html += '<table><tr><th>Config point</th><th>Runs</th><th>Best score</th><th>Bench energy (Wh)</th><th>Avg load power (W)</th><th>Optimizations seen</th></tr>';
+  for (const v of [0,25,75,100]) {
+    const rs = byScale[v];
+    const b = best(rs);
+    const avgE = mean(rs, 'energy_wh_integrated');
+    const loadPower = rs.map(r => (r.energy_wh_integrated != null && r.bench_start != null && r.bench_end > r.bench_start)
+      ? r.energy_wh_integrated * 3600 / (r.bench_end - r.bench_start) : null).filter(v => v != null);
+    const avgP = loadPower.length ? loadPower.reduce((a,c)=>a+c)/loadPower.length : null;
+    const opts = [...new Set(rs.map(r => r.optimization).filter(Boolean))];
+    html += `<tr><td class="scale-${v}"><b>${v} — ${SCALE_LABEL[v]}</b></td>` +
+      `<td class="num">${rs.length}</td>` +
+      `<td>${b ? fmt(b.bench_score) + ' ' + esc(b.bench_unit || '') : '—'}</td>` +
+      `<td class="num">${fmt(avgE)}</td><td class="num">${fmt(avgP)}</td>` +
+      `<td>${opts.length ? opts.map(esc).join('<br>') : '—'}</td></tr>`;
+  }
+  html += '</table>';
+
+  // individual runs within this test
+  html += `<h3>All runs for ${esc(test)}</h3><table><tr><th>Run</th><th>Host</th><th>Config point</th><th>Optimization</th><th>Score</th><th>Energy (Wh)</th></tr>`;
+  for (const r of subset.sort((a,b) => b.run_id - a.run_id)) {
+    html += `<tr class="click" onclick="location.hash='#/run/${r.run_id}'"><td class="num">#${r.run_id}</td><td>${esc(r.host)}</td>` +
+      `<td class="scale-${r.scale}">${r.scale == null ? '—' : SCALE_LABEL[r.scale]}</td>` +
+      `<td>${esc(r.optimization)}</td><td class="num">${fmt(r.bench_score)} ${esc(r.bench_unit||'')}</td><td class="num">${fmt(r.energy_wh_integrated)}</td></tr>`;
+  }
+  app.innerHTML = html + '</table>';
+}
+
+// ---------- Runs list ----------
+function viewRuns() {
+  nav('#/runs');
+  const runs = [...DATA.runs].sort((a,b) => b.run_id - a.run_id);
+  if (!runs.length) { app.innerHTML = '<div class="empty">No runs recorded yet.</div>'; return; }
+  let html = `<h2>Runs (${runs.length})</h2><table><tr><th>#</th><th>Started</th><th>Host</th><th>Group</th><th>Test</th><th>Config point</th><th>Optimization</th><th>Repeat</th><th>Score</th><th>Energy (Wh)</th><th>Coverage</th></tr>`;
+  for (const r of runs) {
+    html += `<tr class="click" onclick="location.hash='#/run/${r.run_id}'">` +
+      `<td class="num">#${r.run_id}</td><td>${dt(r.started_at)}</td><td>${esc(r.host)}</td><td>${esc(r.host_group)}</td>` +
+      `<td>${esc(r.test)}</td><td class="scale-${r.scale}">${r.scale == null ? '—' : SCALE_LABEL[r.scale]}</td>` +
+      `<td>${esc(r.optimization)}</td><td class="num">${r.repeat_idx ?? '—'}</td>` +
+      `<td class="num">${fmt(r.bench_score)} ${esc(r.bench_unit||'')}</td><td class="num">${fmt(r.energy_wh_integrated)}</td>` +
+      `<td class="num">${r.bench_sample_coverage != null ? fmt(r.bench_sample_coverage*100,1)+'%' : '—'}</td></tr>`;
+  }
+  app.innerHTML = html + '</table>';
+}
+
+// ---------- Run detail ----------
+let chart = null;
+function viewRun(id) {
+  nav('#/runs');
+  const r = DATA.runs.find(x => x.run_id === id);
+  if (!r) { app.innerHTML = '<div class="empty">Run not found.</div>'; return; }
+  const fields = [
+    'started_at','host','host_group','hardware_generation','test','optimization','repeat_idx',
+    'kernel','cpu_model','governor','turbo','ambient_c','bench_start_temp_c',
+    'bench_score','bench_unit','energy_wh_integrated','bench_sample_coverage',
+    'dropped_packets','checksum_failures','result_name',
+  ];
+  let html = `<p><a class="back" href="#/runs">← All runs</a></p><h2>Run #${r.run_id} — ${esc(r.test)} on ${esc(r.host)}</h2>
+    <p>Config point: <b class="scale-${r.scale}">${r.scale == null ? 'unknown' : r.scale + ' — ' + SCALE_LABEL[r.scale]}</b></p><div class="grid">` +
+    fields.map(f => `<div class="card"><b>${esc(f)}</b>${f==='started_at'?dt(r[f]):esc(Array.isArray(r[f])?JSON.stringify(r[f]):r[f])}</div>`).join('') +
+    `</div><h3>Power over time</h3><div id="chart-box"><canvas id="chart"></canvas></div>`;
+
+  const rd = DATA.readings[String(id)];
+  if (!rd || !rd.t.length) { html += '<div class="empty">No power readings recorded for this run.</div>'; app.innerHTML = html; return; }
+
+  // segment into phases for colored lines
+  const t0 = rd.t[0];
+  const segs = {};
+  rd.ph.forEach((ph, i) => { (segs[ph] ??= {x:[],y:[]}); segs[ph].x.push(rd.t[i]-t0); segs[ph].y.push(rd.p[i]); });
+  const colors = { '-1':'#8a93a3', settle:'#d2a8ff', idle:'#7ee787', bench:'#ffa657', cooldown:'#56d4dd' };
+  app.innerHTML = html;
+  chart = new Chart(document.getElementById('chart'), {
+    type: 'line',
+    data: { datasets: Object.entries(segs).map(([ph, s]) => ({
+      label: ph === '-1' ? 'unknown' : PHASES[ph] || ph,
+      data: s.x.map((x,i) => ({x, y:s.y[i]})),
+      borderColor: colors[ph] || '#8a93a3', backgroundColor: 'transparent',
+      pointRadius: 0, borderWidth: 1.5, tension: 0.1, normalized: true,
+    }))},
+    options: {
+      parsing: false, animation: false,
+      scales: {
+        x: { title: {display:true, text:'seconds since start'}, type:'linear' },
+        y: { title: {display:true, text:'power (W)'}, beginAtZero: true },
+      },
+      plugins: { legend: {labels:{color:'#e6e9ef'}},
+        tooltip: { callbacks: { title: items => `${fmt(items[0].parsed.x,1)} s` } } },
+    },
+  });
+}
+
+function router() {
+  if (chart) { chart.destroy(); chart = null; }
+  const h = location.hash || '#/hosts';
+  const m = h.match(/^#\/run\/(\d+)/);
+  if (m) return viewRun(Number(m[1]));
+  if (h.startsWith('#/configs')) return viewConfigs(decodeURIComponent(h.split('/')[2] || ''));
+  if (h.startsWith('#/runs')) return viewRuns();
+  viewHosts();
+}
+
+fetch('data.json').then(r => r.json()).then(d => { DATA = d; router(); });
+window.addEventListener('hashchange', router);
+</script>
+</body>
+</html>
