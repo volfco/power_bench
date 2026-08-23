@@ -302,6 +302,14 @@
       .heat td.click {
         cursor: pointer;
       }
+      .covtest {
+        background: var(--panel);
+      }
+      .covtest th {
+        color: var(--text);
+        font-weight: 700;
+        text-align: left;
+      }
       .empty {
         color: var(--dim);
         padding: 2rem 0;
@@ -427,7 +435,9 @@
       // Single audited sink for HTML built from DB values; every interpolated value
       // passes through esc() above (XSS-safe embedding, data_report_todo.md section L).
       const setHtml = (el, html) => {
-        el.innerHTML = html;
+        const range = document.createRange();
+        range.selectNodeContents(el);
+        el.replaceChildren(range.createContextualFragment(html));
       };
       const fmt = (v, d = 2) => (v == null ? "—" : Number(v).toFixed(d));
       const pct = (v) => (v == null ? "—" : (Number(v) * 100).toFixed(1) + "%");
@@ -642,9 +652,96 @@
               )
               .join("") +
             "</tbody></table>";
-          drawBars("Leaderboard — mean score (top 20)", lb.slice(0, 20));
         }
         setHtml(app, html);
+        if (lb.length) drawBars("Leaderboard — mean score (top 20)", lb.slice(0, 20));
+        drawTradeoff(runs);
+      }
+
+      // energy-vs-performance trade-off map: % change vs each run's host×test
+      // baseline cohort, averaged per configuration; baseline sits at (0,0).
+      const SCALE_CHART_COLOR = {
+        0: "#ff7b72", 25: "#ffa657", 75: "#7ee787", 100: "#56d4dd",
+      };
+      function tradeoffPoints(runs) {
+        const base = {};
+        for (const r of runs) {
+          if (!r.valid || r.scale !== 0) continue;
+          const b = (base[r.host + "|" + r.test] ??= { p: [], e: [] });
+          if (r.bench_score != null) b.p.push(r.bench_score);
+          if (r.energy_wh != null) b.e.push(r.energy_wh);
+        }
+        const acc = {};
+        for (const r of runs) {
+          if (!r.valid || r.scale == null || r.scale === 0) continue;
+          const b = base[r.host + "|" + r.test];
+          if (!b || !b.p.length || !b.e.length || r.bench_score == null || r.energy_wh == null)
+            continue;
+          const a = (acc[r.optimization] ??= { x: [], y: [], scale: r.scale });
+          a.x.push((r.energy_wh / mean(b.e) - 1) * 100);
+          a.y.push((r.bench_score / mean(b.p) - 1) * 100);
+        }
+        return Object.entries(acc).map(([name, a]) => ({
+          name,
+          x: mean(a.x),
+          y: mean(a.y),
+          scale: a.scale,
+        }));
+      }
+      function drawTradeoff(runs) {
+        const pts = tradeoffPoints(runs);
+        if (pts.length < 2) return;
+        const box = document.createElement("div");
+        box.id = "chartbox";
+        setHtml(box, '<canvas height="300"></canvas>');
+        app.appendChild(box);
+        const byScale = {};
+        for (const p of pts) (byScale[p.scale] ??= []).push(p);
+        charts.push(
+          new Chart(box.querySelector("canvas"), {
+            type: "scatter",
+            data: {
+              datasets: [
+                ...Object.keys(byScale)
+                  .sort((a, b) => a - b)
+                  .map((s) => ({
+                    label: SCALE_LABEL[s] ?? s,
+                    data: byScale[s].map((p) => ({ x: p.x, y: p.y, name: p.name })),
+                    backgroundColor: SCALE_CHART_COLOR[s] ?? "#8a93a3",
+                    pointRadius: 5,
+                    pointHoverRadius: 7,
+                  })),
+                {
+                  label: "baseline",
+                  data: [{ x: 0, y: 0, name: "baseline" }],
+                  backgroundColor: "#8a93a3",
+                  pointRadius: 6,
+                  pointStyle: "crossRot",
+                },
+              ],
+            },
+            options: {
+              animation: false,
+              scales: {
+                x: {
+                  title: { display: true, text: "energy vs baseline (%) ← less energy" },
+                },
+                y: {
+                  title: { display: true, text: "performance vs baseline (%) ↑ faster" },
+                },
+              },
+              plugins: {
+                legend: { position: "bottom" },
+                tooltip: {
+                  callbacks: {
+                    label: (it) =>
+                      `${it.raw.name}: ${fmt(it.parsed.y, 1)}% performance, ${fmt(it.parsed.x, 1)}% energy`,
+                  },
+                },
+              },
+            },
+          }),
+        );
       }
 
       // ---------- Compare ----------
@@ -841,251 +938,442 @@
       }
 
       // ---------- Coverage (planned host × config × test grid) ----------
-const covState = { status:'' };
-function plannedFor(opt, test) {
-  const plan = DATA.plan;
-  const target = plan.targets[opt];
-  if (target === undefined) return true;               // custom DB variant: no guidance
-  if (target === 'idle') return test === plan.idleTest || test === plan.perfFloorTest;
-  if (opt === 'baseline') return true;
-  return test !== plan.idleTest;
-}
-const COV_STATUS = {
-  complete:   ['complete', 'q-good'], attention: ['complete + retry needed', 'q-bad'],
-  incomplete: ['incomplete / invalid', 'q-bad'], missing: ['not run yet', 'q-warn'],
-  skipped:    ['skipped by plan', 'q-muted'],
-};
-function viewCoverage() {
-  const plan = DATA.plan;
-  const all = DATA.runs, runs = filteredRuns();
-  const hosts = F.host ? [F.host] : [...new Set(all.map(r=>r.host).filter(Boolean))].sort();
-  let opts = F.config ? [F.config]
-    : [...new Set([...Object.keys(plan.targets), ...all.map(r=>r.optimization).filter(Boolean)])].sort();
-  if (F.arch) opts = opts.filter(o => DATA.arch[o] === F.arch);
-  const seen = new Set(all.map(r=>r.test));
-  const tests = F.test ? [F.test]
-    : [plan.idleTest, plan.perfFloorTest, ...seen].filter((t,i,a) => t && a.indexOf(t)===i);
+      const covState = { metric: "result", rel: false };
+      function plannedFor(opt, test) {
+        const plan = DATA.plan;
+        const target = plan.targets[opt];
+        if (target === undefined) return true; // custom DB variant: no guidance
+        if (target === "idle")
+          return test === plan.idleTest || test === plan.perfFloorTest;
+        if (opt === "baseline") return true;
+        return test !== plan.idleTest;
+      }
+      function covCell(cellRuns, baseMean, m) {
+        // returns { text, d, n, v, latest, status } for one host x config x test cell
+        const runs = cellRuns || [];
+        const vals = runs.map(m.get).filter((v) => v != null && isFinite(v));
+        const v = runs.filter((r) => r.valid).length;
+        const status = !runs.length ? "missing"
+          : v === runs.length ? "complete" : v > 0 ? "attention" : "incomplete";
+        if (!vals.length)
+          return { text: "·", d: null, n: runs.length, v, status,
+                   latest: runs.length ? Math.max(...runs.map((r) => r.run_id)) : null };
+        const avg = mean(vals);
+        const text = covState.rel
+          ? baseMean
+            ? (avg / baseMean - 1 >= 0 ? "+" : "") + ((avg / baseMean - 1) * 100).toFixed(1) + "%"
+            : "—"
+          : fmt(avg, m.d);
+        return { text, d: baseMean ? (avg / baseMean - 1) * 100 : null,
+                 n: runs.length, v, status,
+                 latest: Math.max(...runs.map((r) => r.run_id)) };
+      }
+      function viewCoverage() {
+        const plan = DATA.plan;
+        const all = DATA.runs,
+          runs = filteredRuns();
+        const hosts = F.host
+          ? [F.host]
+          : [...new Set(all.map((r) => r.host).filter(Boolean))].sort();
+        let opts = F.config
+          ? [F.config]
+          : [
+              ...new Set([
+                ...Object.keys(plan.targets),
+                ...all.map((r) => r.optimization).filter(Boolean),
+              ]),
+            ].sort((a, b) =>
+              a === "baseline" ? -1 : b === "baseline" ? 1 : a.localeCompare(b),
+            );
+        if (F.arch) opts = opts.filter((o) => DATA.arch[o] === F.arch);
+        const seen = new Set(all.map((r) => r.test));
+        const tests = F.test
+          ? [F.test]
+          : [plan.idleTest, plan.perfFloorTest, ...seen].filter(
+              (t, i, a) => t && a.indexOf(t) === i,
+            );
 
-  // aggregate recorded runs per (host, opt, test)
-  const agg = {};
-  for (const r of runs) {
-    const k = r.host+'|'+r.optimization+'|'+r.test;
-    const e = agg[k] ??= { n:0, v:0, score:[], energy:[], idle:[], latest:null, latestAt:null };
-    e.n++; if (r.valid) e.v++;
-    if (r.bench_score != null) e.score.push(r.bench_score);
-    if (r.energy_wh != null) e.energy.push(r.energy_wh);
-    if (r.idle_w != null && r.test === plan.idleTest) e.idle.push(r.idle_w);
-    if (!e.latest || r.run_id > e.latest) { e.latest = r.run_id; e.latestAt = r.started_at; }
-  }
-  const rows = [];
-  for (const h of hosts) for (const o of opts) for (const t of tests) {
-    const e = agg[h+'|'+o+'|'+t];
-    const planned = plannedFor(o, t);
-    const status = !e || !e.n ? (planned ? 'missing' : 'skipped')
-      : e.v === e.n ? 'complete' : e.v > 0 ? 'attention' : 'incomplete';
-    rows.push({ h, o, t, planned, status, ...(e || { n:0, v:0 }) });
-  }
-  const shown = covState.status ? rows.filter(r => r.status === covState.status) : rows;
-  const counts = rows.reduce((a,r)=>(a[r.status]=(a[r.status]||0)+1,a),{});
-  setHtml(app, `<h2>Coverage — planned host × configuration × test combinations</h2>
-    <div class="legend">
-      ${Object.entries(COV_STATUS).map(([k,[label,cls]]) =>
-        `<span><span class="chip ${cls}">${label}</span> ${counts[k]||0}</span>`).join('')}
-      <span>Status: <select id="covStatus">
-        <option value="">all states</option>${Object.entries(COV_STATUS).map(([k,[label]]) =>
-          `<option value="${k}" ${covState.status===k?'selected':''}>${label}</option>`).join('')}
-      </select></span>
-    </div>
-    <table><thead><tr><th>Host</th><th>Configuration</th><th>Test</th><th>State</th>
-      <th class="num">Avg result</th><th class="num">Avg energy Wh</th><th class="num">Runs valid</th><th>Latest</th></tr></thead><tbody>` +
-    (shown.length ? shown.slice(0,3000).map(r => {
-      const [label, cls] = COV_STATUS[r.status];
-      const res = r.idle?.length ? `idle ${fmt(mean(r.idle),2)} W`
-        : r.score?.length ? `${fmt(mean(r.score),3)}` : '—';
-      return `<tr class="click" ${r.latest ? `onclick="location.hash='#/run/${r.latest}'"` : ''} title="${esc(r.o)} on ${esc(r.h)} — ${esc(label)}">
-        <td>${esc(r.h)}</td><td>${esc(r.o)}${archTag(r.o)}</td><td>${esc(r.t)}</td>
-        <td><span class="chip ${cls}">${label}</span></td>
-        <td class="num">${res}</td><td class="num">${r.energy?.length ? fmt(mean(r.energy),3) : '—'}</td>
-        <td class="num">${r.v}/${r.n || 0}</td>
-        <td>${r.latest ? `#${r.latest}` : '—'}</td></tr>`;
-    }).join('') : '<tr><td colspan="8" class="empty">No combinations match.</td></tr>') + '</tbody></table>');
-  document.getElementById('covStatus').onchange = ev => { covState.status = ev.target.value; viewCoverage(); };
-}
+        const m = RANGE_METRICS[covState.metric];
+        // cells: run lists per (host, config, test); baselines per (host, test)
+        const cells = {};
+        for (const r of runs) {
+          if (!r.host || !r.optimization || !r.test) continue;
+          (cells[r.host + "|" + r.optimization + "|" + r.test] ??= []).push(r);
+        }
+        const baseMeans = {};
+        for (const r of runs) {
+          if (!r.valid || r.scale !== 0) continue;
+          const v = m.get(r);
+          if (v == null) continue;
+          ((baseMeans[r.test] ??= {})[r.host] ??= []).push(v);
+        }
+        const baseOf = (h, t) => mean((baseMeans[t] || {})[h] || []);
 
-// ---------- shared band-chart helpers (Ranges + Sub-tests) ----------
-function stddev(a) { const m = mean(a); return Math.sqrt(mean(a.map(v => (v-m)*(v-m)))); }
-function groupStats(runs, getMetric, keyFn) {
-  const g = {};
-  for (const r of runs) {
-    if (!r.valid) continue;
-    const v = getMetric(r);
-    if (v == null || !isFinite(v)) continue;
-    const k = keyFn(r);
-    (g[k] ??= { values:[], runIds:[] });
-    g[k].values.push(v); g[k].runIds.push(r.run_id);
-  }
-  return Object.entries(g).map(([key, e]) => {
-    const vs = e.values, s = stddev(vs), m = mean(vs);
-    return { key, n: vs.length, mean: m, min: Math.min(...vs), max: Math.max(...vs),
-             range: Math.max(...vs)-Math.min(...vs), sd: s, cv: m ? s/m : null, runIds: e.runIds };
-  });
-}
-function bandChart(caption, stats) {
-  const box = document.createElement('div'); box.id = 'chartbox';
-  setHtml(box, '<canvas height="260"></canvas>');
-  app.insertBefore(box, app.querySelector('table'));
-  charts.push(new Chart(box.querySelector('canvas'), {
-    type: 'bar',
-    data: { labels: stats.map(s => s.key), datasets: [
-      { label:'mean', data: stats.map(s => s.mean),
-        backgroundColor: cssVar('--acc'), borderRadius: 3, barPercentage: .35 },
-      { label:'min–max', data: stats.map(s => [s.min, s.max]),
-        backgroundColor: 'rgba(128,128,128,.22)', borderWidth: 0, borderRadius: 5, barPercentage: 1 },
-    ]},
-    options: {
-      indexAxis: 'y', animation: false, maintainAspectRatio: false,
-      scales: { x: { grid:{ color: cssVar('--line') }, ticks:{ color: cssVar('--dim') } },
-                y: { grid:{ display:false }, ticks:{ color: cssVar('--text'), font:{size:11} } } },
-      plugins: { legend: { display:false },
-        tooltip: { callbacks: { label: item => {
-          const s = stats[item.dataIndex];
-          return item.datasetIndex === 0 ? `mean ${fmt(s.mean,3)}` : `min–max ${fmt(s.min,3)} – ${fmt(s.max,3)}`; } } } },
-    },
-  }));
-}
-function statsTable(stats) {
-  return '<table><thead><tr><th>Group</th><th class="num">n</th><th class="num">Mean</th><th class="num">Min</th>' +
-    '<th class="num">Max</th><th class="num">Range</th><th class="num">SD</th><th class="num">CV</th><th>Recent runs</th></tr></thead><tbody>' +
-    stats.map(s => {
-      const ids = s.runIds.slice(-10);
-      return `<tr><td>${esc(s.key)}</td><td class="num">${s.n}</td><td class="num"><b>${fmt(s.mean,3)}</b></td>
-        <td class="num">${fmt(s.min,3)}</td><td class="num">${fmt(s.max,3)}</td><td class="num">${fmt(s.range,3)}</td>
-        <td class="num">${fmt(s.sd,3)}</td><td class="num">${s.cv != null ? fmt(s.cv*100,1)+'%' : '—'}</td>
-        <td>${ids.map(id => `<a href="#/run/${id}">#${id}</a>`).join(' ')}
-            ${s.runIds.length > ids.length ? `<span class="muted">+${s.runIds.length-ids.length} older</span>` : ''}</td></tr>`;
-    }).join('') + '</tbody></table>';
-}
-function sortStats(stats, how) {
-  const s = [...stats];
-  if (how === 'spread') s.sort((a,b) => (b.range) - (a.range));
-  else if (how === 'name') s.sort((a,b) => a.key.localeCompare(b.key));
-  else s.sort((a,b) => b.mean - a.mean);
-  return s;
-}
+        let body = "";
+        for (const t of tests) {
+          body += `<tr class="covtest"><th colspan="${hosts.length + 1}">${esc(t)}</th></tr>`;
+          for (const o of opts) {
+            const cellRows = hosts.map((h) => {
+              const cell = cells[h + "|" + o + "|" + t];
+              return covCell(cell, baseOf(h, t), m);
+            });
+            const recorded = cellRows.some((c) => c.n > 0);
+            if (!recorded && !plannedFor(o, t)) continue; // skipped by plan and never run
+            const bm = F.host ? baseOf(F.host, t) : null; // single-host column header hint
+            body += `<tr><td>${esc(o)}${archTag(o)}</td>` +
+              cellRows
+                .map((c, i) => {
+                  const style =
+                    covState.rel && c.d != null && Math.abs(c.d) > 0.05
+                      ? ` style="background:color-mix(in srgb, var(--acc) ${Math.min(40, Math.abs(c.d) / 2.5)}%, transparent)"`
+                      : "";
+                  return `<td class="num click" ${style} title="${esc(o)} on ${esc(hosts[i])} — ${c.status}, ${c.v}/${c.n} valid${c.latest ? ", run #" + c.latest : ""}" ${c.latest ? `onclick="location.hash='#/run/${c.latest}'"` : ""}>${c.text}</td>`;
+                })
+                .join("") +
+              `</tr>`;
+          }
+        }
+        setHtml(
+          app,
+          `<h2>Coverage — planned combinations by test and configuration</h2>
+    <p>Metric: <select id="covMetric">${Object.entries(RANGE_METRICS)
+      .map(
+        ([k, v]) =>
+          `<option value="${k}" ${covState.metric === k ? "selected" : ""}>${v.label}</option>`,
+      )
+      .join("")}</select>
+      Values: <select id="covRel">
+        <option value="abs" ${!covState.rel ? "selected" : ""}>absolute</option>
+        <option value="rel" ${covState.rel ? "selected" : ""}>relative ±% vs baseline</option>
+      </select>
+      <span class="muted">· means no valid data · click a cell to open its latest run</span></p>
+    <div class="heat"><table><thead><tr><th>configuration \ host</th>${hosts
+      .map((h) => `<th>${esc(h)}</th>`)
+      .join("")}</tr></thead><tbody>${body}</tbody></table></div>`,
+        );
+        document.getElementById("covMetric").onchange = (ev) => {
+          covState.metric = ev.target.value;
+          viewCoverage();
+        };
+        document.getElementById("covRel").onchange = (ev) => {
+          covState.rel = ev.target.value === "rel";
+          viewCoverage();
+        };
+      }
+      // ---------- shared band-chart helpers (Ranges + Sub-tests) ----------
+      function stddev(a) {
+        const m = mean(a);
+        return Math.sqrt(mean(a.map((v) => (v - m) * (v - m))));
+      }
+      function groupStats(runs, getMetric, keyFn) {
+        const g = {};
+        for (const r of runs) {
+          if (!r.valid) continue;
+          const v = getMetric(r);
+          if (v == null || !isFinite(v)) continue;
+          const k = keyFn(r);
+          g[k] ??= { values: [], runIds: [] };
+          g[k].values.push(v);
+          g[k].runIds.push(r.run_id);
+        }
+        return Object.entries(g).map(([key, e]) => {
+          const vs = e.values,
+            s = stddev(vs),
+            m = mean(vs);
+          return {
+            key,
+            n: vs.length,
+            mean: m,
+            min: Math.min(...vs),
+            max: Math.max(...vs),
+            range: Math.max(...vs) - Math.min(...vs),
+            sd: s,
+            cv: m ? s / m : null,
+            runIds: e.runIds,
+          };
+        });
+      }
+      function bandChart(caption, stats) {
+        const box = document.createElement("div");
+        box.id = "chartbox";
+        setHtml(box, '<canvas height="260"></canvas>');
+        app.insertBefore(box, app.querySelector("table"));
+        charts.push(
+          new Chart(box.querySelector("canvas"), {
+            type: "bar",
+            data: {
+              labels: stats.map((s) => s.key),
+              datasets: [
+                {
+                  label: "mean",
+                  data: stats.map((s) => s.mean),
+                  backgroundColor: cssVar("--acc"),
+                  borderRadius: 3,
+                  barPercentage: 0.35,
+                },
+                {
+                  label: "min–max",
+                  data: stats.map((s) => [s.min, s.max]),
+                  backgroundColor: "rgba(128,128,128,.22)",
+                  borderWidth: 0,
+                  borderRadius: 5,
+                  barPercentage: 1,
+                },
+              ],
+            },
+            options: {
+              indexAxis: "y",
+              animation: false,
+              maintainAspectRatio: false,
+              scales: {
+                x: {
+                  grid: { color: cssVar("--line") },
+                  ticks: { color: cssVar("--dim") },
+                },
+                y: {
+                  grid: { display: false },
+                  ticks: { color: cssVar("--text"), font: { size: 11 } },
+                },
+              },
+              plugins: {
+                legend: { display: false },
+                tooltip: {
+                  callbacks: {
+                    label: (item) => {
+                      const s = stats[item.dataIndex];
+                      return item.datasetIndex === 0
+                        ? `mean ${fmt(s.mean, 3)}`
+                        : `min–max ${fmt(s.min, 3)} – ${fmt(s.max, 3)}`;
+                    },
+                  },
+                },
+              },
+            },
+          }),
+        );
+      }
+      function statsTable(stats) {
+        return (
+          '<table><thead><tr><th>Group</th><th class="num">n</th><th class="num">Mean</th><th class="num">Min</th>' +
+          '<th class="num">Max</th><th class="num">Range</th><th class="num">SD</th><th class="num">CV</th><th>Recent runs</th></tr></thead><tbody>' +
+          stats
+            .map((s) => {
+              const ids = s.runIds.slice(-10);
+              return `<tr><td>${esc(s.key)}</td><td class="num">${s.n}</td><td class="num"><b>${fmt(s.mean, 3)}</b></td>
+        <td class="num">${fmt(s.min, 3)}</td><td class="num">${fmt(s.max, 3)}</td><td class="num">${fmt(s.range, 3)}</td>
+        <td class="num">${fmt(s.sd, 3)}</td><td class="num">${s.cv != null ? fmt(s.cv * 100, 1) + "%" : "—"}</td>
+        <td>${ids.map((id) => `<a href="#/run/${id}">#${id}</a>`).join(" ")}
+            ${s.runIds.length > ids.length ? `<span class="muted">+${s.runIds.length - ids.length} older</span>` : ""}</td></tr>`;
+            })
+            .join("") +
+          "</tbody></table>"
+        );
+      }
+      function sortStats(stats, how) {
+        const s = [...stats];
+        if (how === "spread") s.sort((a, b) => b.range - a.range);
+        else if (how === "name") s.sort((a, b) => a.key.localeCompare(b.key));
+        else s.sort((a, b) => b.mean - a.mean);
+        return s;
+      }
 
-// ---------- Ranges view ----------
-const RANGE_METRICS = {
-  score:  { label:'Bucket score',     get:r=>r.score,       d:1 },
-  result: { label:'Primary result',   get:r=>r.bench_score, d:3 },
-  energy: { label:'Energy (Wh)',      get:r=>r.energy_wh,   d:3 },
-  load:   { label:'Load power (W)',   get:r=>r.load_w,      d:2 },
-  idle:   { label:'Idle power (W)',   get:r=>r.idle_w,      d:2 },
-  peak:   { label:'Peak power (W)',   get:r=>r.peak_w,      d:2 },
-};
-const rangesState = { metric:'energy', groupBy:'config', sort:'mean', indexed:false };
-function baselineIndexer(runs, getMetric) {
-  // baseline mean = 100 per host × test cohort; null when no baseline exists there
-  const cohorts = {};
-  for (const r of runs) {
-    if (!r.valid || r.scale !== 0) continue;
-    const v = getMetric(r);
-    if (v == null) continue;
-    ((cohorts[r.test] ??= {})[r.host] ??= []).push(v);
-  }
-  return r => {
-    const b = mean(((cohorts[r.test] || {})[r.host]) || []);
-    const v = getMetric(r);
-    return b && v != null ? v/b*100 : null;
-  };
-}
-function viewRanges(runs) {
-  const S = rangesState, m = RANGE_METRICS[S.metric];
-  const get = S.indexed ? baselineIndexer(runs, m.get) : m.get;
-  const keyFn = S.groupBy === 'host' ? (r => r.host) : (r => r.optimization || 'baseline');
-  const stats = sortStats(groupStats(runs, get, keyFn), S.sort);
-  setHtml(app, `<h2>Ranges — spread of ${S.indexed ? 'indexed' : esc(m.label.toLowerCase())} across groups</h2>
-    <p>Metric: <select id="rgMetric">${Object.entries(RANGE_METRICS).map(([k,v]) =>
-        `<option value="${k}" ${S.metric===k?'selected':''}>${v.label}</option>`).join('')}</select>
+      // ---------- Ranges view ----------
+      const RANGE_METRICS = {
+        score: { label: "Bucket score", get: (r) => r.score, d: 1 },
+        result: { label: "Primary result", get: (r) => r.bench_score, d: 3 },
+        energy: { label: "Energy (Wh)", get: (r) => r.energy_wh, d: 3 },
+        load: { label: "Load power (W)", get: (r) => r.load_w, d: 2 },
+        idle: { label: "Idle power (W)", get: (r) => r.idle_w, d: 2 },
+        peak: { label: "Peak power (W)", get: (r) => r.peak_w, d: 2 },
+      };
+      const rangesState = {
+        metric: "energy",
+        groupBy: "config",
+        sort: "mean",
+        indexed: false,
+      };
+      function baselineIndexer(runs, getMetric) {
+        // baseline mean = 100 per host × test cohort; null when no baseline exists there
+        const cohorts = {};
+        for (const r of runs) {
+          if (!r.valid || r.scale !== 0) continue;
+          const v = getMetric(r);
+          if (v == null) continue;
+          ((cohorts[r.test] ??= {})[r.host] ??= []).push(v);
+        }
+        return (r) => {
+          const b = mean((cohorts[r.test] || {})[r.host] || []);
+          const v = getMetric(r);
+          return b && v != null ? (v / b) * 100 : null;
+        };
+      }
+      function viewRanges(runs) {
+        const S = rangesState,
+          m = RANGE_METRICS[S.metric];
+        const get = S.indexed ? baselineIndexer(runs, m.get) : m.get;
+        const keyFn =
+          S.groupBy === "host"
+            ? (r) => r.host
+            : (r) => r.optimization || "baseline";
+        const stats = sortStats(groupStats(runs, get, keyFn), S.sort);
+        setHtml(
+          app,
+          `<h2>Ranges — spread of ${S.indexed ? "indexed" : esc(m.label.toLowerCase())} across groups</h2>
+    <p>Metric: <select id="rgMetric">${Object.entries(RANGE_METRICS)
+      .map(
+        ([k, v]) =>
+          `<option value="${k}" ${S.metric === k ? "selected" : ""}>${v.label}</option>`,
+      )
+      .join("")}</select>
       Group by: <select id="rgGroup">
-        <option value="config" ${S.groupBy==='config'?'selected':''}>configuration</option>
-        <option value="host" ${S.groupBy==='host'?'selected':''}>host</option></select>
+        <option value="config" ${S.groupBy === "config" ? "selected" : ""}>configuration</option>
+        <option value="host" ${S.groupBy === "host" ? "selected" : ""}>host</option></select>
       Sort: <select id="rgSort">
-        <option value="mean" ${S.sort==='mean'?'selected':''}>mean</option>
-        <option value="spread" ${S.sort==='spread'?'selected':''}>widest spread</option>
-        <option value="name" ${S.sort==='name'?'selected':''}>name</option></select>
+        <option value="mean" ${S.sort === "mean" ? "selected" : ""}>mean</option>
+        <option value="spread" ${S.sort === "spread" ? "selected" : ""}>widest spread</option>
+        <option value="name" ${S.sort === "name" ? "selected" : ""}>name</option></select>
       Scale: <select id="rgScale">
-        <option value="raw" ${!S.indexed?'selected':''}>raw values</option>
-        <option value="indexed" ${S.indexed?'selected':''}>indexed vs baseline (=100)</option></select></p>` +
-    (stats.length ? '' : '<div class="empty">No measurements match the current filters.</div>'));
-  if (!stats.length) return;
-  bandChart(`${m.label}${S.indexed ? ', baseline-indexed' : ''}`, stats);
-  const tbl = document.createElement('div');
-  setHtml(tbl, statsTable(stats));
-  app.appendChild(tbl);
-  for (const [id, fn] of [['rgMetric', v=>S.metric=v], ['rgGroup', v=>S.groupBy=v],
-                          ['rgSort', v=>S.sort=v], ['rgScale', v=>S.indexed=(v==='indexed')]]) {
-    document.getElementById(id).onchange = ev => { fn(ev.target.value); viewRanges(filteredRuns()); };
-  }
-}
+        <option value="raw" ${!S.indexed ? "selected" : ""}>raw values</option>
+        <option value="indexed" ${S.indexed ? "selected" : ""}>indexed vs baseline (=100)</option></select></p>` +
+            (stats.length
+              ? ""
+              : '<div class="empty">No measurements match the current filters.</div>'),
+        );
+        if (!stats.length) return;
+        bandChart(`${m.label}${S.indexed ? ", baseline-indexed" : ""}`, stats);
+        const tbl = document.createElement("div");
+        setHtml(tbl, statsTable(stats));
+        app.appendChild(tbl);
+        for (const [id, fn] of [
+          ["rgMetric", (v) => (S.metric = v)],
+          ["rgGroup", (v) => (S.groupBy = v)],
+          ["rgSort", (v) => (S.sort = v)],
+          ["rgScale", (v) => (S.indexed = v === "indexed")],
+        ]) {
+          document.getElementById(id).onchange = (ev) => {
+            fn(ev.target.value);
+            viewRanges(filteredRuns());
+          };
+        }
+      }
 
-// ---------- Sub-tests view ----------
-const subState = { test:'', title:'', groupBy:'config', sort:'mean' };
-function viewSubtests() {
-  const st = DATA.subtests;
-  if (!st || !st.rows.length) { setHtml(app, '<h2>Sub-tests</h2><div class="empty">No suite sub-test results recorded.</div>'); return; }
-  const titles = Object.keys(st.titles);
-  const byId = {}; for (const r of DATA.runs) byId[r.run_id] = r;
-  const rows = st.rows.map(([rid, ti, v]) => ({ run: byId[rid], titleIdx: ti, value: v })).filter(x => x.run);
-  const tests = [...new Set(rows.map(x => x.run.test))].sort();
-  if (!subState.test || !tests.includes(subState.test)) subState.test = tests[0];
-  const inTest = rows.filter(x => x.run.test === subState.test);
-  const titlesInTest = [...new Set(inTest.map(x => titles[x.titleIdx]))].sort();
-  if (!subState.title || !titlesInTest.includes(subState.title)) subState.title = titlesInTest[0];
-  const meta = st.titles[subState.title] || {};
-  const chosen = inTest.filter(x => titles[x.titleIdx] === subState.title);
-  const keyFn = subState.groupBy === 'host' ? (r => r.host) : (r => r.optimization || 'baseline');
-  const pseudoRuns = chosen.map(x => ({ ...x.run, __v: x.value }));
-  const stats = sortStats(groupStats(pseudoRuns, r => r.__v, keyFn), subState.sort);
-  setHtml(app, `<h2>Suite sub-test explorer</h2>
-    <p>Test: <select id="sbTest">${tests.map(t => `<option ${t===subState.test?'selected':''}>${esc(t)}</option>`).join('')}</select>
-      Sub-test: <select id="sbTitle">${titlesInTest.map(t => `<option ${t===subState.title?'selected':''}>${esc(t)}</option>`).join('')}</select>
+      // ---------- Sub-tests view ----------
+      const subState = { test: "", title: "", groupBy: "config", sort: "mean" };
+      function viewSubtests() {
+        const st = DATA.subtests;
+        if (!st || !st.rows.length) {
+          setHtml(
+            app,
+            '<h2>Sub-tests</h2><div class="empty">No suite sub-test results recorded.</div>',
+          );
+          return;
+        }
+        const titles = Object.keys(st.titles);
+        const byId = {};
+        for (const r of DATA.runs) byId[r.run_id] = r;
+        const rows = st.rows
+          .map(([rid, ti, v]) => ({ run: byId[rid], titleIdx: ti, value: v }))
+          .filter((x) => x.run);
+        const tests = [...new Set(rows.map((x) => x.run.test))].sort();
+        if (!subState.test || !tests.includes(subState.test))
+          subState.test = tests[0];
+        const inTest = rows.filter((x) => x.run.test === subState.test);
+        const titlesInTest = [
+          ...new Set(inTest.map((x) => titles[x.titleIdx])),
+        ].sort();
+        if (!subState.title || !titlesInTest.includes(subState.title))
+          subState.title = titlesInTest[0];
+        const meta = st.titles[subState.title] || {};
+        const chosen = inTest.filter(
+          (x) => titles[x.titleIdx] === subState.title,
+        );
+        const keyFn =
+          subState.groupBy === "host"
+            ? (r) => r.host
+            : (r) => r.optimization || "baseline";
+        const pseudoRuns = chosen.map((x) => ({ ...x.run, __v: x.value }));
+        const stats = sortStats(
+          groupStats(pseudoRuns, (r) => r.__v, keyFn),
+          subState.sort,
+        );
+        setHtml(
+          app,
+          `<h2>Suite sub-test explorer</h2>
+    <p>Test: <select id="sbTest">${tests.map((t) => `<option ${t === subState.test ? "selected" : ""}>${esc(t)}</option>`).join("")}</select>
+      Sub-test: <select id="sbTitle">${titlesInTest.map((t) => `<option ${t === subState.title ? "selected" : ""}>${esc(t)}</option>`).join("")}</select>
       Group by: <select id="sbGroup">
-        <option value="config" ${subState.groupBy==='config'?'selected':''}>configuration</option>
-        <option value="host" ${subState.groupBy==='host'?'selected':''}>host</option></select>
+        <option value="config" ${subState.groupBy === "config" ? "selected" : ""}>configuration</option>
+        <option value="host" ${subState.groupBy === "host" ? "selected" : ""}>host</option></select>
       Sort: <select id="sbSort">
-        <option value="mean" ${subState.sort==='mean'?'selected':''}>mean</option>
-        <option value="spread" ${subState.sort==='spread'?'selected':''}>widest spread</option>
-        <option value="name" ${subState.sort==='name'?'selected':''}>name</option></select></p>
-    <p class="muted">Scale: ${esc(meta.scale || '—')} · ${meta.hib ? 'higher is better' : 'lower is better'} · ${chosen.length} measurements</p>` +
-    (stats.length ? '' : '<div class="empty">No values for this selection.</div>'));
-  if (!stats.length) return;
-  bandChart(`${subState.title} — mean with min–max band`, stats);
-  const stbl = document.createElement('div');
-  setHtml(stbl, statsTable(stats));
-  app.appendChild(stbl);
-  document.getElementById('sbTest').onchange = ev => { subState.test = ev.target.value; subState.title=''; viewSubtests(); };
-  document.getElementById('sbTitle').onchange = ev => { subState.title = ev.target.value; viewSubtests(); };
-  document.getElementById('sbGroup').onchange = ev => { subState.groupBy = ev.target.value; viewSubtests(); };
-  document.getElementById('sbSort').onchange = ev => { subState.sort = ev.target.value; viewSubtests(); };
-}
+        <option value="mean" ${subState.sort === "mean" ? "selected" : ""}>mean</option>
+        <option value="spread" ${subState.sort === "spread" ? "selected" : ""}>widest spread</option>
+        <option value="name" ${subState.sort === "name" ? "selected" : ""}>name</option></select></p>
+    <p class="muted">Scale: ${esc(meta.scale || "—")} · ${meta.hib ? "higher is better" : "lower is better"} · ${chosen.length} measurements</p>` +
+            (stats.length
+              ? ""
+              : '<div class="empty">No values for this selection.</div>'),
+        );
+        if (!stats.length) return;
+        bandChart(`${subState.title} — mean with min–max band`, stats);
+        const stbl = document.createElement("div");
+        setHtml(stbl, statsTable(stats));
+        app.appendChild(stbl);
+        document.getElementById("sbTest").onchange = (ev) => {
+          subState.test = ev.target.value;
+          subState.title = "";
+          viewSubtests();
+        };
+        document.getElementById("sbTitle").onchange = (ev) => {
+          subState.title = ev.target.value;
+          viewSubtests();
+        };
+        document.getElementById("sbGroup").onchange = (ev) => {
+          subState.groupBy = ev.target.value;
+          viewSubtests();
+        };
+        document.getElementById("sbSort").onchange = (ev) => {
+          subState.sort = ev.target.value;
+          viewSubtests();
+        };
+      }
 
-// ---------- Raw data browser ----------
-let rawCache = null;
-async function viewRaw() {
-  if (!rawCache) {
-    try { rawCache = await fetch('raw.json').then(x => x.ok ? x.json() : null); } catch { /* offline */ }
-  }
-  if (!rawCache) { setHtml(app, '<h2>Raw tables</h2><div class="empty">raw.json unavailable — regenerate the report.</div>'); return; }
-  setHtml(app, '<h2>Raw database tables — latest rows, newest first</h2>' +
-    Object.entries(rawCache).sort(([a],[b]) => a.localeCompare(b)).map(([name, t]) =>
-      `<details ${name === 'runs' ? 'open' : ''}><summary><b>${esc(name)}</b> — ${t.count.toLocaleString()} rows total, showing latest ${t.rows.length}</summary>
+      // ---------- Raw data browser ----------
+      let rawCache = null;
+      async function viewRaw() {
+        if (!rawCache) {
+          try {
+            rawCache = await fetch("raw.json").then((x) =>
+              x.ok ? x.json() : null,
+            );
+          } catch {
+            /* offline */
+          }
+        }
+        if (!rawCache) {
+          setHtml(
+            app,
+            '<h2>Raw tables</h2><div class="empty">raw.json unavailable — regenerate the report.</div>',
+          );
+          return;
+        }
+        setHtml(
+          app,
+          "<h2>Raw database tables — latest rows, newest first</h2>" +
+            Object.entries(rawCache)
+              .sort(([a], [b]) => a.localeCompare(b))
+              .map(
+                ([name, t]) =>
+                  `<details ${name === "runs" ? "open" : ""}><summary><b>${esc(name)}</b> — ${t.count.toLocaleString()} rows total, showing latest ${t.rows.length}</summary>
        <div style="overflow:auto;max-height:26rem;border:1px solid var(--line)"><table>
-         <thead><tr>${t.columns.map(c => `<th>${esc(c)}</th>`).join('')}</tr></thead>
-         <tbody>${t.rows.map(row => '<tr>' + row.map(v => `<td>${esc(v)}</td>`).join('') + '</tr>').join('')}</tbody>
-       </table></div></details>`).join(''));
-}
+         <thead><tr>${t.columns.map((c) => `<th>${esc(c)}</th>`).join("")}</tr></thead>
+         <tbody>${t.rows.map((row) => "<tr>" + row.map((v) => `<td>${esc(v)}</td>`).join("") + "</tr>").join("")}</tbody>
+       </table></div></details>`,
+              )
+              .join(""),
+        );
+      }
 
-// ---------- Run detail ----------
+      // ---------- Run detail ----------
       async function viewRun(id) {
         const r = DATA.runs.find((x) => x.run_id === id);
         if (!r) {
