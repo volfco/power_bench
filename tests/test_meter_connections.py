@@ -135,6 +135,35 @@ class MeterConnectionFallbackTests(unittest.TestCase):
         self.assertIs(result, client)
         discover_spp.assert_not_called()
 
+    @patch("meter_ble.discover_atorch_spp_devices")
+    @patch("meter_ble.SppMeterConnection")
+    @patch.object(
+        meter_ble.BleakScanner,
+        "find_device_by_address",
+        new_callable=AsyncMock,
+        return_value=None,
+    )
+    def test_spp_retries_with_discovered_public_address_on_failure(
+        self, _find, spp, discover_spp
+    ):
+        # First connect (using the passed BLE/random MAC) fails; discovery then
+        # yields the meter's public BR/EDR address and the retry succeeds.
+        first = MagicMock()
+        first.connect = AsyncMock(side_effect=RuntimeError("Permission denied"))
+        second = MagicMock()
+        second.connect = AsyncMock(return_value="spp socket")
+        spp.side_effect = [first, second]
+        discover_spp.return_value = [
+            ClassicDevice(name="AT24_SPP", address="46:AF:4E:55:56:06")
+        ]
+        conn = meter_ble.MeterConnection("45:AF:4E:55:56:06", timeout=2.0)
+
+        result = asyncio.run(conn.connect())
+
+        self.assertEqual(result, "spp socket")
+        self.assertEqual(spp.call_args_list[0][0][0], "45:AF:4E:55:56:06")
+        self.assertEqual(spp.call_args_list[1][0][0], "46:AF:4E:55:56:06")
+
     @patch("meter_ble.SppMeterConnection")
     @patch("meter_ble.discover_atorch_spp_devices")
     @patch.object(
