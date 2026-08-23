@@ -1,215 +1,1386 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Power Bench Report</title>
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
-<style>
-  :root { --bg:#0f1115; --panel:#181c23; --line:#2a303b; --text:#e6e9ef; --dim:#8a93a3; --acc:#4da3ff; }
-  * { box-sizing:border-box; }
-  body { margin:0; background:var(--bg); color:var(--text); font:14px/1.45 system-ui,sans-serif; }
-  header { display:flex; gap:1.5rem; align-items:center; padding:.7rem 1.2rem; border-bottom:1px solid var(--line); position:sticky; top:0; background:var(--bg); z-index:10; }
-  header h1 { font-size:1rem; margin:0; }
-  nav a { color:var(--dim); text-decoration:none; margin-right:1rem; padding:.25rem .5rem; border-radius:4px; }
-  nav a.active { color:var(--text); background:var(--panel); }
-  main { padding:1.2rem; max-width:1200px; margin:0 auto; }
-  h2 { font-size:1.15rem; } h3 { font-size:1rem; color:var(--dim); }
-  table { border-collapse:collapse; width:100%; margin:.8rem 0; }
-  th, td { border:1px solid var(--line); padding:.35rem .6rem; text-align:left; white-space:nowrap; }
-  th { background:var(--panel); position:sticky; top:3rem; }
-  td.num { text-align:right; font-variant-numeric:tabular-nums; }
-  tr.click { cursor:pointer; } tr.click:hover { background:var(--panel); }
-  .scale-0 { color:#ff7b72; } .scale-25 { color:#ffa657; } .scale-75 { color:#7ee787; } .scale-100 { color:#56d4dd; }
-  .empty { color:var(--dim); padding:2rem 0; }
-  select, input { background:var(--panel); color:var(--text); border:1px solid var(--line); padding:.35rem .5rem; border-radius:4px; }
-  .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:.6rem; margin:.8rem 0; }
-  .card { background:var(--panel); border:1px solid var(--line); border-radius:6px; padding:.6rem .8rem; }
-  .card b { display:block; font-size:.75rem; color:var(--dim); font-weight:normal; }
-  #chart-box { background:var(--panel); border:1px solid var(--line); border-radius:6px; padding:1rem; max-width:900px; }
-  .back { color:var(--acc); text-decoration:none; }
-</style>
-</head>
-<body>
-<header>
-  <h1>⚡ Power Bench</h1>
-  <nav>
-    <a href="#/hosts">Hosts</a>
-    <a href="#/configs">Configurations</a>
-    <a href="#/runs">Runs</a>
-  </nav>
-</header>
-<main id="app"><div class="empty">Loading…</div></main>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Power Bench Report</title>
+    <script src="chart.umd.min.js"></script>
+    <style>
+      :root {
+        --bg: #f4f6f8;
+        --panel: #ffffff;
+        --line: #d9dee5;
+        --text: #1c2430;
+        --dim: #66707f;
+        --acc: #0b7285;
+        --good: #2b8a3e;
+        --warn: #b8860b;
+        --bad: #c92a2a;
+        --chipbg: #eef1f4;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #0f1115;
+          --panel: #181c23;
+          --line: #2a303b;
+          --text: #e6e9ef;
+          --dim: #8a93a3;
+          --acc: #4da3ff;
+          --good: #7ee787;
+          --warn: #ffa657;
+          --bad: #ff7b72;
+          --chipbg: #22272f;
+        }
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font:
+          14px/1.45 system-ui,
+          sans-serif;
+      }
+      header {
+        position: sticky;
+        top: 0;
+        background: var(--bg);
+        border-bottom: 1px solid var(--line);
+        z-index: 20;
+      }
+      .headrow {
+        display: flex;
+        gap: 1.5rem;
+        align-items: center;
+        padding: 0.6rem 1.2rem;
+        flex-wrap: wrap;
+      }
+      header h1 {
+        font-size: 1rem;
+        margin: 0;
+      }
+      nav {
+        display: flex;
+        gap: 0.25rem;
+      }
+      nav a {
+        color: var(--dim);
+        text-decoration: none;
+        padding: 0.25rem 0.6rem;
+        border-radius: 5px;
+      }
+      nav a.active {
+        color: var(--text);
+        background: var(--panel);
+        border: 1px solid var(--line);
+      }
+      #filters {
+        display: flex;
+        gap: 0.5rem;
+        padding: 0.5rem 1.2rem;
+        flex-wrap: wrap;
+        align-items: center;
+        border-top: 1px solid var(--line);
+        background: var(--panel);
+        position: sticky;
+        top: 2.55rem;
+        z-index: 19;
+      }
+      select,
+      input[type="search"] {
+        background: var(--bg);
+        color: var(--text);
+        border: 1px solid var(--line);
+        padding: 0.3rem 0.5rem;
+        border-radius: 5px;
+        font: inherit;
+        max-width: 13rem;
+      }
+      button {
+        font: inherit;
+        cursor: pointer;
+      }
+      #resetBtn {
+        border: 1px solid var(--line);
+        background: none;
+        color: var(--acc);
+        border-radius: 5px;
+        padding: 0.3rem 0.6rem;
+      }
+      main {
+        padding: 1.2rem;
+        max-width: 1250px;
+        margin: 0 auto;
+      }
+      h2 {
+        font-size: 1.15rem;
+        margin: 0.4rem 0 0.6rem;
+      }
+      h3 {
+        font-size: 0.95rem;
+        color: var(--dim);
+        margin: 1.2rem 0 0.4rem;
+      }
+      table {
+        border-collapse: collapse;
+        width: 100%;
+        margin: 0.6rem 0;
+      }
+      th,
+      td {
+        border-bottom: 1px solid var(--line);
+        padding: 0.35rem 0.55rem;
+        text-align: left;
+        white-space: nowrap;
+      }
+      th {
+        color: var(--dim);
+        font-weight: 600;
+        border-bottom-width: 2px;
+      }
+      th.sortable {
+        cursor: pointer;
+        user-select: none;
+      }
+      th.sortable:hover {
+        color: var(--text);
+      }
+      td.num,
+      th.num {
+        text-align: right;
+        font-variant-numeric: tabular-nums;
+      }
+      tr.click {
+        cursor: pointer;
+      }
+      tbody tr.click:hover {
+        background: var(--panel);
+        box-shadow: inset 0 0 0 1px var(--line);
+      }
+      .grid {
+        display: grid;
+        gap: 0.6rem;
+        margin: 0.8rem 0;
+      }
+      .tiles {
+        grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+      }
+      .card {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 0.6rem 0.8rem;
+      }
+      .card small {
+        display: block;
+        color: var(--dim);
+        font-size: 0.72rem;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+      }
+      .card b {
+        font-size: 1.05rem;
+        font-weight: 600;
+      }
+      .winner {
+        display: flex;
+        gap: 1.2rem;
+        align-items: center;
+        flex-wrap: wrap;
+        padding: 1rem 1.2rem;
+        margin: 0.8rem 0;
+        border-left: 4px solid var(--acc);
+      }
+      .winner .score {
+        font-size: 2.2rem;
+        font-weight: 700;
+        color: var(--acc);
+      }
+      .pill {
+        display: inline-block;
+        background: var(--chipbg);
+        border: 1px solid var(--line);
+        border-radius: 99px;
+        padding: 0.05rem 0.6rem;
+        font-size: 0.75rem;
+        color: var(--dim);
+        margin: 0.15rem 0.15rem 0 0;
+      }
+      .tag {
+        font-size: 0.68rem;
+        padding: 0.02rem 0.4rem;
+        border-radius: 4px;
+        border: 1px solid var(--line);
+        color: var(--dim);
+        vertical-align: middle;
+      }
+      .scale-0 {
+        color: #e8590c;
+      }
+      .scale-25 {
+        color: #d9480f;
+      }
+      .scale-75 {
+        color: #2b8a3e;
+      }
+      .scale-100 {
+        color: #0b7285;
+      }
+      @media (prefers-color-scheme: dark) {
+        .scale-0 {
+          color: #ff7b72;
+        }
+        .scale-25 {
+          color: #ffa657;
+        }
+        .scale-75 {
+          color: #7ee787;
+        }
+        .scale-100 {
+          color: #56d4dd;
+        }
+      }
+      .chip {
+        display: inline-block;
+        padding: 0.05rem 0.5rem;
+        border-radius: 99px;
+        font-size: 0.72rem;
+        border: 1px solid transparent;
+      }
+      .q-good {
+        color: var(--good);
+        border-color: var(--good);
+      }
+      .q-bad {
+        color: var(--bad);
+        border-color: var(--bad);
+      }
+      .q-warn {
+        color: var(--warn);
+        border-color: var(--warn);
+      }
+      .q-muted {
+        color: var(--dim);
+        border-color: var(--line);
+      }
+      .bar-cell {
+        position: relative;
+        min-width: 9rem;
+      }
+      .bar-cell i {
+        position: absolute;
+        inset: 0.25rem auto 0.25rem 0;
+        background: var(--acc);
+        opacity: 0.25;
+        border-radius: 3px;
+      }
+      .bar-cell span {
+        position: relative;
+      }
+      #chartbox {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 1rem;
+        margin: 0.8rem 0;
+        max-height: 32rem;
+      }
+      .heat {
+        overflow-x: auto;
+      }
+      .heat table {
+        font-size: 0.78rem;
+      }
+      .heat th,
+      .heat td {
+        border: 1px solid var(--line);
+        padding: 0.25rem 0.4rem;
+        text-align: center;
+      }
+      .heat td.click {
+        cursor: pointer;
+      }
+      .empty {
+        color: var(--dim);
+        padding: 2rem 0;
+      }
+      .back {
+        color: var(--acc);
+        text-decoration: none;
+      }
+      .muted {
+        color: var(--dim);
+      }
+      dl.props {
+        display: grid;
+        grid-template-columns: max-content 1fr;
+        gap: 0.2rem 1rem;
+        margin: 0.4rem 0;
+      }
+      dl.props dt {
+        color: var(--dim);
+      }
+      dl.props dd {
+        margin: 0;
+        overflow-wrap: anywhere;
+      }
+      .legend {
+        display: flex;
+        gap: 1rem;
+        flex-wrap: wrap;
+        color: var(--dim);
+        font-size: 0.78rem;
+        margin: 0.3rem 0;
+      }
+      .dot {
+        display: inline-block;
+        width: 0.65em;
+        height: 0.65em;
+        border-radius: 50%;
+        margin-right: 0.3em;
+      }
+      @media (max-width: 720px) {
+        #filters {
+          top: 3.1rem;
+        }
+        main {
+          padding: 0.8rem;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div class="headrow">
+        <h1>⚡ Power Bench</h1>
+        <nav>
+          <a href="#/overview">Overview</a>
+          <a href="#/compare">Compare</a>
+          <a href="#/coverage">Coverage</a>
+          <a href="#/ranges">Ranges</a>
+          <a href="#/subtests">Sub-tests</a>
+          <a href="#/runs">Runs</a>
+          <a href="#/raw">Raw</a>
+        </nav>
+      </div>
+      <div id="filters">
+        <select id="fHost">
+          <option value="">All hosts</option>
+        </select>
+        <select id="fTest">
+          <option value="">All tests</option>
+        </select>
+        <select id="fConfig">
+          <option value="">All configurations</option>
+        </select>
+        <select id="fArch">
+          <option value="">Intel + AMD</option>
+          <option>Intel</option>
+          <option>AMD</option>
+          <option>Both</option>
+        </select>
+        <input type="search" id="fSearch" placeholder="Search runs…" />
+        <button id="resetBtn" type="button">Reset</button>
+        <span class="muted" id="filterCount"></span>
+      </div>
+    </header>
+    <main id="app"><div class="empty">Loading…</div></main>
 
-<script>
-let DATA = null;
-const app = document.getElementById('app');
-const SCALE_LABEL = { 0:'Max performance', 25:'Performance', 75:'Powersave', 100:'Max powersave' };
-const PHASES = ['settle','idle','bench','cooldown'];
-const esc = s => String(s ?? '—').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-const fmt = (v, d=2) => v == null ? '—' : Number(v).toFixed(d);
-const dt = s => s ? new Date(s).toLocaleString() : '—';
+    <script>
+      "use strict";
+      let DATA = null;
+      const app = document.getElementById("app");
+      const SCALE_LABEL = {
+        0: "Max performance",
+        25: "Performance",
+        75: "Powersave",
+        100: "Max powersave",
+      };
+      const PHASES = ["settle", "idle", "bench", "cooldown"];
+      const PHASE_COLOR = {
+        "-1": "#8a93a3",
+        settle: "#d2a8ff",
+        idle: "#7ee787",
+        bench: "#ffa657",
+        cooldown: "#56d4dd",
+      };
+      const PALETTE = [
+        "#4da3ff",
+        "#7ee787",
+        "#ffa657",
+        "#ff7b72",
+        "#56d4dd",
+        "#d2a8ff",
+        "#f0b429",
+        "#63e6be",
+        "#e599f7",
+        "#a9e34b",
+      ];
 
-function nav(route) {
-  document.querySelectorAll('nav a').forEach(a =>
-    a.classList.toggle('active', route.startsWith(a.hash.slice(1))));
+      const esc = (s) =>
+        String(s ?? "—").replace(
+          /[&<>"]/g,
+          (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c],
+        );
+      // Single audited sink for HTML built from DB values; every interpolated value
+      // passes through esc() above (XSS-safe embedding, data_report_todo.md section L).
+      const setHtml = (el, html) => {
+        el.innerHTML = html;
+      };
+      const fmt = (v, d = 2) => (v == null ? "—" : Number(v).toFixed(d));
+      const pct = (v) => (v == null ? "—" : (Number(v) * 100).toFixed(1) + "%");
+      const dt = (s) => (s ? new Date(s).toLocaleString() : "—");
+      const mean = (a) =>
+        a.length ? a.reduce((x, y) => x + y, 0) / a.length : null;
+
+      // ---------- filters ----------
+      const F = { host: "", test: "", arch: "", config: "", q: "" };
+      function fillSelect(id, values, current) {
+        const el = document.getElementById(id);
+        const label = el.options[0].textContent;
+        setHtml(
+          el,
+          `<option value="">${esc(label)}</option>` +
+            values
+              .map(
+                (v) =>
+                  `<option ${v === current ? "selected" : ""}>${esc(v)}</option>`,
+              )
+              .join(""),
+        );
+      }
+      function syncFilterControls() {
+        if (!DATA.runs.length) return;
+        fillSelect(
+          "fHost",
+          [...new Set(DATA.runs.map((r) => r.host).filter(Boolean))].sort(),
+          F.host,
+        );
+        fillSelect(
+          "fTest",
+          [...new Set(DATA.runs.map((r) => r.test).filter(Boolean))].sort(),
+          F.test,
+        );
+        fillSelect(
+          "fConfig",
+          [
+            ...new Set(DATA.runs.map((r) => r.optimization).filter(Boolean)),
+          ].sort(),
+          F.config,
+        );
+        document.getElementById("fArch").value = F.arch;
+        document.getElementById("fSearch").value = F.q;
+      }
+      function filteredRuns() {
+        const q = F.q.trim().toLowerCase();
+        return DATA.runs.filter(
+          (r) =>
+            (!F.host || r.host === F.host) &&
+            (!F.test || r.test === F.test) &&
+            (!F.config || r.optimization === F.config) &&
+            (!F.arch || DATA.arch[r.optimization] === F.arch) &&
+            (!q ||
+              [
+                r.host,
+                r.host_group,
+                r.hardware_generation,
+                r.test,
+                r.optimization,
+                r.config_hash,
+                String(r.run_id),
+              ].some((v) =>
+                String(v ?? "")
+                  .toLowerCase()
+                  .includes(q),
+              )),
+        );
+      }
+      function bindFilters() {
+        document.getElementById("fHost").onchange = (e) => {
+          F.host = e.target.value;
+          render();
+        };
+        document.getElementById("fTest").onchange = (e) => {
+          F.test = e.target.value;
+          render();
+        };
+        document.getElementById("fConfig").onchange = (e) => {
+          F.config = e.target.value;
+          render();
+        };
+        document.getElementById("fArch").onchange = (e) => {
+          F.arch = e.target.value;
+          render();
+        };
+        let t;
+        document.getElementById("fSearch").oninput = (e) => {
+          clearTimeout(t);
+          t = setTimeout(() => {
+            F.q = e.target.value;
+            render();
+          }, 200);
+        };
+        document.getElementById("resetBtn").onclick = () => {
+          Object.assign(F, { host: "", test: "", arch: "", config: "", q: "" });
+          syncFilterControls();
+          render();
+        };
+      }
+      function focusOn(host, test) {
+        Object.assign(F, { host: host || "", test: test || "" });
+        syncFilterControls();
+        location.hash = "#/compare";
+      }
+
+      // ---------- derived aggregates ----------
+      // Leaderboard: configs ranked by mean bucket score across (host × test) cohorts.
+      function leaderboard(runs, minRuns = 1) {
+        const byConfig = {};
+        for (const r of runs) {
+          if (!r.valid || r.score == null) continue;
+          byConfig[r.optimization] ??= {
+            scores: [],
+            hosts: new Set(),
+            tests: new Set(),
+            energy: [],
+          };
+          const e = byConfig[r.optimization];
+          e.scores.push(r.score);
+          e.hosts.add(r.host);
+          e.tests.add(r.test);
+          if (r.energy_wh != null) e.energy.push(r.energy_wh);
+        }
+        return Object.entries(byConfig)
+          .map(([name, e]) => ({
+            name,
+            arch: DATA.arch[name],
+            n: e.scores.length,
+            mean: mean(e.scores),
+            min: Math.min(...e.scores),
+            max: Math.max(...e.scores),
+            hosts: e.hosts.size,
+            tests: e.tests.size,
+            avgEnergy: mean(e.energy),
+          }))
+          .filter((e) => e.n >= minRuns)
+          .sort((a, b) => b.mean - a.mean);
+      }
+      const scaleTag = (r) =>
+        r.scale == null
+          ? '<span class="muted">—</span>'
+          : `<span class="scale-${r.scale}">${SCALE_LABEL[r.scale]}</span>`;
+      const archTag = (name) =>
+        DATA.arch[name]
+          ? ` <span class="tag">${esc(DATA.arch[name])}</span>`
+          : "";
+      const qualityChip = (r) =>
+        r.valid
+          ? `<span class="chip q-good" title="${esc(r.quality_reason)}">valid</span>`
+          : `<span class="chip q-bad" title="${esc(r.quality_reason)}">needs attention</span>`;
+
+      // ---------- Overview ----------
+      function viewOverview(runs) {
+        const lb = leaderboard(runs, 3);
+        const valid = runs.filter((r) => r.valid);
+        const winner = lb[0];
+        let html = "<h2>Overview</h2>";
+        html +=
+          `<div class="grid tiles">` +
+          [
+            ["Recorded runs", runs.length],
+            ["Valid runs", valid.length],
+            [
+              "Power samples",
+              runs.reduce((a, r) => a + (r.samples || 0), 0).toLocaleString(),
+            ],
+            ["Hosts", new Set(runs.map((r) => r.host)).size],
+            ["Tests", new Set(runs.map((r) => r.test)).size],
+            [
+              "Latest run",
+              dt(Math.max(...runs.map((r) => new Date(r.started_at || 0)))),
+            ],
+          ]
+            .map(
+              ([k, v]) =>
+                `<div class="card"><small>${k}</small><b>${esc(v)}</b></div>`,
+            )
+            .join("") +
+          "</div>";
+
+        if (winner) {
+          html += `<div class="card winner"><div><small>Best configuration in view</small>
+      <b>${esc(winner.name)}</b>${archTag(winner.name)}<br>
+      <span class="pill">${winner.hosts} hosts</span><span class="pill">${winner.tests} tests</span>
+      <span class="pill">${winner.n} scored runs</span>
+      <span class="pill">range ${fmt(winner.min, 1)}–${fmt(winner.max, 1)}</span>
+      <span class="pill">avg energy ${fmt(winner.avgEnergy, 3)} Wh</span></div>
+      <div class="score">${fmt(winner.mean, 1)}<span style="font-size:1rem;color:var(--dim)"> /100</span></div></div>`;
+        }
+
+        html += `<h3>Configuration leaderboard — mean bucket-weighted score across cohorts</h3>`;
+        if (!lb.length)
+          html +=
+            '<div class="empty">No scored runs match the current filters.</div>';
+        else {
+          html +=
+            `<table><thead><tr><th>#</th><th>Configuration</th><th>n</th><th>Mean score</th><th></th><th class="num">Range</th><th class="num">Avg energy Wh</th></tr></thead><tbody>` +
+            lb
+              .slice(0, 20)
+              .map(
+                (
+                  e,
+                  i,
+                ) => `<tr class="click" onclick="setConfigFilter(${JSON.stringify(e.name).replace(/"/g, "&quot;")})" title="Focus all views on this configuration">
+        <td class="num">${i + 1}</td>
+        <td>${esc(e.name)}${archTag(e.name)}</td><td class="num">${e.n}</td>
+        <td class="num"><b>${fmt(e.mean, 1)}</b></td>
+        <td class="bar-cell"><i style="width:${Math.max(0, e.mean)}%"></i><span></span></td>
+        <td class="num muted">${fmt(e.min, 0)}–${fmt(e.max, 0)}</td>
+        <td class="num">${fmt(e.avgEnergy, 3)}</td></tr>`,
+              )
+              .join("") +
+            "</tbody></table>";
+          drawBars("Leaderboard — mean score (top 20)", lb.slice(0, 20));
+        }
+        setHtml(app, html);
+      }
+
+      // ---------- Compare ----------
+      const HEAT_METRICS = {
+        score: { label: "Score", get: (r) => r.score },
+        performance: { label: "Performance", get: (r) => r.bench_score },
+        energy: { label: "Energy (Wh)", get: (r) => r.energy_wh },
+        power: {
+          label: "Load/idle power W",
+          get: (r) => (r.test === "idle" ? r.idle_w : r.load_w),
+        },
+      };
+      function viewCompare(runs) {
+        const lb = leaderboard(runs, 1);
+        let html = "<h2>Compare configurations</h2>";
+        if (!lb.length) {
+          setHtml(
+            app,
+            html +
+              '<div class="empty">No scored runs match the current filters.</div>',
+          );
+          return;
+        }
+
+        // details table
+        html +=
+          `<table><thead><tr><th>#</th><th>Configuration</th><th class="num">Score ± range</th>
+    <th></th><th class="num">Cohorts</th><th class="num">Runs</th><th class="num">Avg energy Wh</th></tr></thead><tbody>` +
+          lb
+            .map(
+              (
+                e,
+                i,
+              ) => `<tr class="click" onclick="setConfigFilter(${JSON.stringify(e.name).replace(/"/g, "&quot;")})" title="Focus all views on this configuration">
+      <td class="num">${i + 1}</td><td>${esc(e.name)}${archTag(e.name)}</td>
+      <td class="num"><b>${fmt(e.mean, 1)}</b> <span class="muted">± ${fmt((e.max - e.min) / 2, 1)}</span></td>
+      <td class="bar-cell"><i style="width:${Math.max(0, e.mean)}%"></i><span></span></td>
+      <td class="num">${e.hosts}×${e.tests}</td><td class="num">${e.n}</td>
+      <td class="num">${fmt(e.avgEnergy, 3)}</td></tr>`,
+            )
+            .join("") +
+          "</tbody></table>";
+        setHtml(app, html);
+        drawBars("Ranked by mean bucket score (click to focus)", lb);
+
+        // host × test heatmap, indexed vs baseline cohort (=100 where baseline exists)
+        html += `<h3>Host × test heatmap — indexed vs each cohort's baseline (baseline = 100)</h3>
+    <p>Metric: <select id="heatMetric">${Object.entries(HEAT_METRICS)
+      .map(([k, m]) => `<option value="${k}">${m.label}</option>`)
+      .join("")}</select></p>
+    <div class="heat"><table id="heatTable"></table></div>`;
+        setHtml(app, html);
+        const hosts = [
+          ...new Set(runs.map((r) => r.host).filter(Boolean)),
+        ].sort();
+        const tests = [
+          ...new Set(runs.map((r) => r.test).filter(Boolean)),
+        ].sort();
+        function drawHeat(metricKey) {
+          const get = HEAT_METRICS[metricKey].get;
+          const cohorts = {};
+          for (const r of runs) {
+            if (!r.valid || !r.host || !r.test) continue;
+            const v = get(r);
+            if (v == null) continue;
+            (cohorts[r.test] ??= {})[r.host] ??= { vals: [], base: [] };
+            const c = cohorts[r.test][r.host];
+            c.vals.push(v);
+            if (r.scale === 0) c.base.push(v);
+          }
+          const idx = (host, test) => {
+            const c = cohorts[test]?.[host];
+            if (!c) return null;
+            const m = mean(c.vals),
+              b = mean(c.base);
+            return b ? (m / b) * 100 : m;
+          };
+          let t =
+            "<tr><th>Test \\ Host</th>" +
+            hosts.map((h) => `<th>${esc(h)}</th>`).join("") +
+            "</tr>";
+          for (const test of tests) {
+            t +=
+              `<tr><td><b>${esc(test)}</b></td>` +
+              hosts
+                .map((h) => {
+                  const v = idx(h, test);
+                  const style =
+                    v == null
+                      ? ""
+                      : `style="background:color-mix(in srgb, var(--acc) ${Math.min(45, Math.abs(100 - v) / 2.5)}%, transparent)"`;
+                  return `<td class="click num" ${style} title="${esc(test)} on ${esc(h)}${v == null ? ": no data" : ""}" data-h="${esc(h)}" data-t="${esc(test)}">${v == null ? "·" : fmt(v, 1)}</td>`;
+                })
+                .join("") +
+              "</tr>";
+          }
+          const table = document.getElementById("heatTable");
+          setHtml(table, t);
+          table
+            .querySelectorAll("td[data-h]")
+            .forEach(
+              (td) => (td.onclick = () => focusOn(td.dataset.h, td.dataset.t)),
+            );
+        }
+        document.getElementById("heatMetric").onchange = (e) =>
+          drawHeat(e.target.value);
+        drawHeat("score");
+      }
+
+      // ---------- Runs ----------
+      const runState = { sortKey: null, dir: -1 };
+      function viewRuns(runs) {
+        const cols = [
+          { k: "run_id", label: "#", num: true },
+          { k: "started_at", label: "Started" },
+          { k: "host", label: "Host" },
+          { k: "test", label: "Test" },
+          { k: "scale", label: "Scale" },
+          { k: "optimization", label: "Optimization" },
+          { k: "bench_score", label: "Result", num: true },
+          { k: "energy_wh", label: "Energy Wh", num: true },
+          { k: "idle_w", label: "Idle W", num: true },
+          { k: "load_w", label: "Load W", num: true },
+          { k: "peak_w", label: "Peak W", num: true },
+          { k: "quality", label: "Quality" },
+        ];
+        const sorted = [...runs].sort((a, b) => {
+          if (!runState.sortKey) return b.run_id - a.run_id;
+          const av =
+            runState.sortKey === "quality"
+              ? a.valid
+                ? 1
+                : 0
+              : a[runState.sortKey];
+          const bv =
+            runState.sortKey === "quality"
+              ? b.valid
+                ? 1
+                : 0
+              : b[runState.sortKey];
+          return (
+            (av == null
+              ? -1
+              : bv == null
+                ? 1
+                : av < bv
+                  ? -1
+                  : av > bv
+                    ? 1
+                    : 0) * runState.dir
+          );
+        });
+        const arrow = (k) =>
+          runState.sortKey === k ? (runState.dir > 0 ? " ▲" : " ▼") : "";
+        setHtml(
+          app,
+          `<h2>Runs (${sorted.length})</h2><table><thead><tr>` +
+            cols
+              .map(
+                (c) =>
+                  `<th class="${c.num ? "num" : ""} sortable" data-k="${c.k}">${c.label}${arrow(c.k)}</th>`,
+              )
+              .join("") +
+            "</tr></thead><tbody>" +
+            (sorted.length
+              ? sorted
+                  .map(
+                    (
+                      r,
+                    ) => `<tr class="click" onclick="location.hash='#/run/${r.run_id}'">
+      <td class="num">#${r.run_id}</td><td>${dt(r.started_at)}</td><td>${esc(r.host)}</td><td>${esc(r.test)}</td>
+      <td>${scaleTag(r)}</td><td>${esc(r.optimization)}${archTag(r.optimization)}</td>
+      <td class="num">${fmt(r.bench_score, 3)} ${esc(r.bench_unit || "")}</td>
+      <td class="num">${fmt(r.energy_wh, 3)}</td><td class="num">${fmt(r.idle_w, 2)}</td>
+      <td class="num">${fmt(r.load_w, 2)}</td><td class="num">${fmt(r.peak_w, 2)}</td>
+      <td>${qualityChip(r)}</td></tr>`,
+                  )
+                  .join("")
+              : '<tr><td colspan="12" class="empty">No runs match the current filters.</td></tr>') +
+            "</tbody></table>",
+        );
+        app.querySelectorAll("th.sortable").forEach(
+          (th) =>
+            (th.onclick = () => {
+              const k = th.dataset.k;
+              if (runState.sortKey === k) runState.dir *= -1;
+              else {
+                runState.sortKey = k;
+                runState.dir = 1;
+              }
+              viewRuns(runs);
+            }),
+        );
+      }
+
+      // ---------- Coverage (planned host × config × test grid) ----------
+const covState = { status:'' };
+function plannedFor(opt, test) {
+  const plan = DATA.plan;
+  const target = plan.targets[opt];
+  if (target === undefined) return true;               // custom DB variant: no guidance
+  if (target === 'idle') return test === plan.idleTest || test === plan.perfFloorTest;
+  if (opt === 'baseline') return true;
+  return test !== plan.idleTest;
 }
+const COV_STATUS = {
+  complete:   ['complete', 'q-good'], attention: ['complete + retry needed', 'q-bad'],
+  incomplete: ['incomplete / invalid', 'q-bad'], missing: ['not run yet', 'q-warn'],
+  skipped:    ['skipped by plan', 'q-muted'],
+};
+function viewCoverage() {
+  const plan = DATA.plan;
+  const all = DATA.runs, runs = filteredRuns();
+  const hosts = F.host ? [F.host] : [...new Set(all.map(r=>r.host).filter(Boolean))].sort();
+  let opts = F.config ? [F.config]
+    : [...new Set([...Object.keys(plan.targets), ...all.map(r=>r.optimization).filter(Boolean)])].sort();
+  if (F.arch) opts = opts.filter(o => DATA.arch[o] === F.arch);
+  const seen = new Set(all.map(r=>r.test));
+  const tests = F.test ? [F.test]
+    : [plan.idleTest, plan.perfFloorTest, ...seen].filter((t,i,a) => t && a.indexOf(t)===i);
 
-// ---------- Host overview ----------
-function viewHosts() {
-  nav('#/hosts');
-  const runs = DATA.runs;
-  if (!runs.length) { app.innerHTML = '<div class="empty">No runs recorded yet.</div>'; return; }
-  const tests = [...new Set(runs.map(r => r.test).filter(Boolean))].sort();
-  // group hosts by host_group, falling back to cpu model / hostname
-  const groups = {};
+  // aggregate recorded runs per (host, opt, test)
+  const agg = {};
   for (const r of runs) {
-    const g = r.host_group || r.host || '?';
-    (groups[g] ??= {})[r.host || '?'] ??= { counts:{}, total:0 };
-    const h = groups[g][r.host || '?'];
-    h.counts[r.test] = (h.counts[r.test] || 0) + 1;
-    h.total++;
+    const k = r.host+'|'+r.optimization+'|'+r.test;
+    const e = agg[k] ??= { n:0, v:0, score:[], energy:[], idle:[], latest:null, latestAt:null };
+    e.n++; if (r.valid) e.v++;
+    if (r.bench_score != null) e.score.push(r.bench_score);
+    if (r.energy_wh != null) e.energy.push(r.energy_wh);
+    if (r.idle_w != null && r.test === plan.idleTest) e.idle.push(r.idle_w);
+    if (!e.latest || r.run_id > e.latest) { e.latest = r.run_id; e.latestAt = r.started_at; }
   }
-  let html = '<h2>Host overview — run counts per host × test</h2>';
-  for (const [g, hosts] of Object.entries(groups)) {
-    html += `<h3>${esc(g)}</h3><table><tr><th>Host</th>${tests.map(t => `<th>${esc(t)}</th>`).join('')}<th>Total</th></tr>`;
-    for (const [host, info] of Object.entries(hosts).sort((a,b) => b[1].total - a[1].total)) {
-      html += `<tr><td><b>${esc(host)}</b></td>` +
-        tests.map(t => `<td class="num">${info.counts[t] ? info.counts[t] : '<span style="color:var(--dim)">·</span>'}</td>`).join('') +
-        `<td class="num"><b>${info.total}</b></td></tr>`;
-    }
-    html += '</table>';
+  const rows = [];
+  for (const h of hosts) for (const o of opts) for (const t of tests) {
+    const e = agg[h+'|'+o+'|'+t];
+    const planned = plannedFor(o, t);
+    const status = !e || !e.n ? (planned ? 'missing' : 'skipped')
+      : e.v === e.n ? 'complete' : e.v > 0 ? 'attention' : 'incomplete';
+    rows.push({ h, o, t, planned, status, ...(e || { n:0, v:0 }) });
   }
-  app.innerHTML = html;
+  const shown = covState.status ? rows.filter(r => r.status === covState.status) : rows;
+  const counts = rows.reduce((a,r)=>(a[r.status]=(a[r.status]||0)+1,a),{});
+  setHtml(app, `<h2>Coverage — planned host × configuration × test combinations</h2>
+    <div class="legend">
+      ${Object.entries(COV_STATUS).map(([k,[label,cls]]) =>
+        `<span><span class="chip ${cls}">${label}</span> ${counts[k]||0}</span>`).join('')}
+      <span>Status: <select id="covStatus">
+        <option value="">all states</option>${Object.entries(COV_STATUS).map(([k,[label]]) =>
+          `<option value="${k}" ${covState.status===k?'selected':''}>${label}</option>`).join('')}
+      </select></span>
+    </div>
+    <table><thead><tr><th>Host</th><th>Configuration</th><th>Test</th><th>State</th>
+      <th class="num">Avg result</th><th class="num">Avg energy Wh</th><th class="num">Runs valid</th><th>Latest</th></tr></thead><tbody>` +
+    (shown.length ? shown.slice(0,3000).map(r => {
+      const [label, cls] = COV_STATUS[r.status];
+      const res = r.idle?.length ? `idle ${fmt(mean(r.idle),2)} W`
+        : r.score?.length ? `${fmt(mean(r.score),3)}` : '—';
+      return `<tr class="click" ${r.latest ? `onclick="location.hash='#/run/${r.latest}'"` : ''} title="${esc(r.o)} on ${esc(r.h)} — ${esc(label)}">
+        <td>${esc(r.h)}</td><td>${esc(r.o)}${archTag(r.o)}</td><td>${esc(r.t)}</td>
+        <td><span class="chip ${cls}">${label}</span></td>
+        <td class="num">${res}</td><td class="num">${r.energy?.length ? fmt(mean(r.energy),3) : '—'}</td>
+        <td class="num">${r.v}/${r.n || 0}</td>
+        <td>${r.latest ? `#${r.latest}` : '—'}</td></tr>`;
+    }).join('') : '<tr><td colspan="8" class="empty">No combinations match.</td></tr>') + '</tbody></table>');
+  document.getElementById('covStatus').onchange = ev => { covState.status = ev.target.value; viewCoverage(); };
 }
 
-// ---------- Configuration explorer ----------
-function viewConfigs(test) {
-  nav('#/configs');
-  const runs = DATA.runs;
-  if (!runs.length) { app.innerHTML = '<div class="empty">No runs recorded yet.</div>'; return; }
-  const tests = [...new Set(runs.map(r => r.test).filter(Boolean))].sort();
-  test = tests.includes(test) ? test : tests[0];
-  const subset = runs.filter(r => r.test === test);
+// ---------- shared band-chart helpers (Ranges + Sub-tests) ----------
+function stddev(a) { const m = mean(a); return Math.sqrt(mean(a.map(v => (v-m)*(v-m)))); }
+function groupStats(runs, getMetric, keyFn) {
+  const g = {};
+  for (const r of runs) {
+    if (!r.valid) continue;
+    const v = getMetric(r);
+    if (v == null || !isFinite(v)) continue;
+    const k = keyFn(r);
+    (g[k] ??= { values:[], runIds:[] });
+    g[k].values.push(v); g[k].runIds.push(r.run_id);
+  }
+  return Object.entries(g).map(([key, e]) => {
+    const vs = e.values, s = stddev(vs), m = mean(vs);
+    return { key, n: vs.length, mean: m, min: Math.min(...vs), max: Math.max(...vs),
+             range: Math.max(...vs)-Math.min(...vs), sd: s, cv: m ? s/m : null, runIds: e.runIds };
+  });
+}
+function bandChart(caption, stats) {
+  const box = document.createElement('div'); box.id = 'chartbox';
+  setHtml(box, '<canvas height="260"></canvas>');
+  app.insertBefore(box, app.querySelector('table'));
+  charts.push(new Chart(box.querySelector('canvas'), {
+    type: 'bar',
+    data: { labels: stats.map(s => s.key), datasets: [
+      { label:'mean', data: stats.map(s => s.mean),
+        backgroundColor: cssVar('--acc'), borderRadius: 3, barPercentage: .35 },
+      { label:'min–max', data: stats.map(s => [s.min, s.max]),
+        backgroundColor: 'rgba(128,128,128,.22)', borderWidth: 0, borderRadius: 5, barPercentage: 1 },
+    ]},
+    options: {
+      indexAxis: 'y', animation: false, maintainAspectRatio: false,
+      scales: { x: { grid:{ color: cssVar('--line') }, ticks:{ color: cssVar('--dim') } },
+                y: { grid:{ display:false }, ticks:{ color: cssVar('--text'), font:{size:11} } } },
+      plugins: { legend: { display:false },
+        tooltip: { callbacks: { label: item => {
+          const s = stats[item.dataIndex];
+          return item.datasetIndex === 0 ? `mean ${fmt(s.mean,3)}` : `min–max ${fmt(s.min,3)} – ${fmt(s.max,3)}`; } } } },
+    },
+  }));
+}
+function statsTable(stats) {
+  return '<table><thead><tr><th>Group</th><th class="num">n</th><th class="num">Mean</th><th class="num">Min</th>' +
+    '<th class="num">Max</th><th class="num">Range</th><th class="num">SD</th><th class="num">CV</th><th>Recent runs</th></tr></thead><tbody>' +
+    stats.map(s => {
+      const ids = s.runIds.slice(-10);
+      return `<tr><td>${esc(s.key)}</td><td class="num">${s.n}</td><td class="num"><b>${fmt(s.mean,3)}</b></td>
+        <td class="num">${fmt(s.min,3)}</td><td class="num">${fmt(s.max,3)}</td><td class="num">${fmt(s.range,3)}</td>
+        <td class="num">${fmt(s.sd,3)}</td><td class="num">${s.cv != null ? fmt(s.cv*100,1)+'%' : '—'}</td>
+        <td>${ids.map(id => `<a href="#/run/${id}">#${id}</a>`).join(' ')}
+            ${s.runIds.length > ids.length ? `<span class="muted">+${s.runIds.length-ids.length} older</span>` : ''}</td></tr>`;
+    }).join('') + '</tbody></table>';
+}
+function sortStats(stats, how) {
+  const s = [...stats];
+  if (how === 'spread') s.sort((a,b) => (b.range) - (a.range));
+  else if (how === 'name') s.sort((a,b) => a.key.localeCompare(b.key));
+  else s.sort((a,b) => b.mean - a.mean);
+  return s;
+}
 
-  // per scale point: best score + mean energy/power + member configs
-  const byScale = {};
-  for (const v of [0,25,75,100]) byScale[v] = [];
-  for (const r of subset) if (r.scale != null) byScale[r.scale].push(r);
-  const best = (rs) => {
-    const scored = rs.filter(r => r.bench_score != null);
-    if (!scored.length) return null;
-    const hib = scored[0].higher_is_better !== false;
-    return scored.reduce((a,b) => (hib ? b.bench_score > a.bench_score : b.bench_score < a.bench_score) ? b : a);
+// ---------- Ranges view ----------
+const RANGE_METRICS = {
+  score:  { label:'Bucket score',     get:r=>r.score,       d:1 },
+  result: { label:'Primary result',   get:r=>r.bench_score, d:3 },
+  energy: { label:'Energy (Wh)',      get:r=>r.energy_wh,   d:3 },
+  load:   { label:'Load power (W)',   get:r=>r.load_w,      d:2 },
+  idle:   { label:'Idle power (W)',   get:r=>r.idle_w,      d:2 },
+  peak:   { label:'Peak power (W)',   get:r=>r.peak_w,      d:2 },
+};
+const rangesState = { metric:'energy', groupBy:'config', sort:'mean', indexed:false };
+function baselineIndexer(runs, getMetric) {
+  // baseline mean = 100 per host × test cohort; null when no baseline exists there
+  const cohorts = {};
+  for (const r of runs) {
+    if (!r.valid || r.scale !== 0) continue;
+    const v = getMetric(r);
+    if (v == null) continue;
+    ((cohorts[r.test] ??= {})[r.host] ??= []).push(v);
+  }
+  return r => {
+    const b = mean(((cohorts[r.test] || {})[r.host]) || []);
+    const v = getMetric(r);
+    return b && v != null ? v/b*100 : null;
   };
-  const mean = (rs, k) => { const vs = rs.map(r => r[k]).filter(v => v != null); return vs.length ? vs.reduce((a,b)=>a+b)/vs.length : null; };
-
-  let html = `<h2>Configuration results — ${esc(test)}</h2>
-    <p>Test: <select onchange="location.hash='#/configs/'+encodeURIComponent(this.value)">
-      ${tests.map(t => `<option ${t===test?'selected':''}>${esc(t)}</option>`).join('')}
-    </select></p>`;
-  html += '<table><tr><th>Config point</th><th>Runs</th><th>Best score</th><th>Bench energy (Wh)</th><th>Avg load power (W)</th><th>Optimizations seen</th></tr>';
-  for (const v of [0,25,75,100]) {
-    const rs = byScale[v];
-    const b = best(rs);
-    const avgE = mean(rs, 'energy_wh_integrated');
-    const loadPower = rs.map(r => (r.energy_wh_integrated != null && r.bench_start != null && r.bench_end > r.bench_start)
-      ? r.energy_wh_integrated * 3600 / (r.bench_end - r.bench_start) : null).filter(v => v != null);
-    const avgP = loadPower.length ? loadPower.reduce((a,c)=>a+c)/loadPower.length : null;
-    const opts = [...new Set(rs.map(r => r.optimization).filter(Boolean))];
-    html += `<tr><td class="scale-${v}"><b>${v} — ${SCALE_LABEL[v]}</b></td>` +
-      `<td class="num">${rs.length}</td>` +
-      `<td>${b ? fmt(b.bench_score) + ' ' + esc(b.bench_unit || '') : '—'}</td>` +
-      `<td class="num">${fmt(avgE)}</td><td class="num">${fmt(avgP)}</td>` +
-      `<td>${opts.length ? opts.map(esc).join('<br>') : '—'}</td></tr>`;
+}
+function viewRanges(runs) {
+  const S = rangesState, m = RANGE_METRICS[S.metric];
+  const get = S.indexed ? baselineIndexer(runs, m.get) : m.get;
+  const keyFn = S.groupBy === 'host' ? (r => r.host) : (r => r.optimization || 'baseline');
+  const stats = sortStats(groupStats(runs, get, keyFn), S.sort);
+  setHtml(app, `<h2>Ranges — spread of ${S.indexed ? 'indexed' : esc(m.label.toLowerCase())} across groups</h2>
+    <p>Metric: <select id="rgMetric">${Object.entries(RANGE_METRICS).map(([k,v]) =>
+        `<option value="${k}" ${S.metric===k?'selected':''}>${v.label}</option>`).join('')}</select>
+      Group by: <select id="rgGroup">
+        <option value="config" ${S.groupBy==='config'?'selected':''}>configuration</option>
+        <option value="host" ${S.groupBy==='host'?'selected':''}>host</option></select>
+      Sort: <select id="rgSort">
+        <option value="mean" ${S.sort==='mean'?'selected':''}>mean</option>
+        <option value="spread" ${S.sort==='spread'?'selected':''}>widest spread</option>
+        <option value="name" ${S.sort==='name'?'selected':''}>name</option></select>
+      Scale: <select id="rgScale">
+        <option value="raw" ${!S.indexed?'selected':''}>raw values</option>
+        <option value="indexed" ${S.indexed?'selected':''}>indexed vs baseline (=100)</option></select></p>` +
+    (stats.length ? '' : '<div class="empty">No measurements match the current filters.</div>'));
+  if (!stats.length) return;
+  bandChart(`${m.label}${S.indexed ? ', baseline-indexed' : ''}`, stats);
+  const tbl = document.createElement('div');
+  setHtml(tbl, statsTable(stats));
+  app.appendChild(tbl);
+  for (const [id, fn] of [['rgMetric', v=>S.metric=v], ['rgGroup', v=>S.groupBy=v],
+                          ['rgSort', v=>S.sort=v], ['rgScale', v=>S.indexed=(v==='indexed')]]) {
+    document.getElementById(id).onchange = ev => { fn(ev.target.value); viewRanges(filteredRuns()); };
   }
-  html += '</table>';
-
-  // individual runs within this test
-  html += `<h3>All runs for ${esc(test)}</h3><table><tr><th>Run</th><th>Host</th><th>Config point</th><th>Optimization</th><th>Score</th><th>Energy (Wh)</th></tr>`;
-  for (const r of subset.sort((a,b) => b.run_id - a.run_id)) {
-    html += `<tr class="click" onclick="location.hash='#/run/${r.run_id}'"><td class="num">#${r.run_id}</td><td>${esc(r.host)}</td>` +
-      `<td class="scale-${r.scale}">${r.scale == null ? '—' : SCALE_LABEL[r.scale]}</td>` +
-      `<td>${esc(r.optimization)}</td><td class="num">${fmt(r.bench_score)} ${esc(r.bench_unit||'')}</td><td class="num">${fmt(r.energy_wh_integrated)}</td></tr>`;
-  }
-  app.innerHTML = html + '</table>';
 }
 
-// ---------- Runs list ----------
-function viewRuns() {
-  nav('#/runs');
-  const runs = [...DATA.runs].sort((a,b) => b.run_id - a.run_id);
-  if (!runs.length) { app.innerHTML = '<div class="empty">No runs recorded yet.</div>'; return; }
-  let html = `<h2>Runs (${runs.length})</h2><table><tr><th>#</th><th>Started</th><th>Host</th><th>Group</th><th>Test</th><th>Config point</th><th>Optimization</th><th>Repeat</th><th>Score</th><th>Energy (Wh)</th><th>Coverage</th></tr>`;
-  for (const r of runs) {
-    html += `<tr class="click" onclick="location.hash='#/run/${r.run_id}'">` +
-      `<td class="num">#${r.run_id}</td><td>${dt(r.started_at)}</td><td>${esc(r.host)}</td><td>${esc(r.host_group)}</td>` +
-      `<td>${esc(r.test)}</td><td class="scale-${r.scale}">${r.scale == null ? '—' : SCALE_LABEL[r.scale]}</td>` +
-      `<td>${esc(r.optimization)}</td><td class="num">${r.repeat_idx ?? '—'}</td>` +
-      `<td class="num">${fmt(r.bench_score)} ${esc(r.bench_unit||'')}</td><td class="num">${fmt(r.energy_wh_integrated)}</td>` +
-      `<td class="num">${r.bench_sample_coverage != null ? fmt(r.bench_sample_coverage*100,1)+'%' : '—'}</td></tr>`;
+// ---------- Sub-tests view ----------
+const subState = { test:'', title:'', groupBy:'config', sort:'mean' };
+function viewSubtests() {
+  const st = DATA.subtests;
+  if (!st || !st.rows.length) { setHtml(app, '<h2>Sub-tests</h2><div class="empty">No suite sub-test results recorded.</div>'); return; }
+  const titles = Object.keys(st.titles);
+  const byId = {}; for (const r of DATA.runs) byId[r.run_id] = r;
+  const rows = st.rows.map(([rid, ti, v]) => ({ run: byId[rid], titleIdx: ti, value: v })).filter(x => x.run);
+  const tests = [...new Set(rows.map(x => x.run.test))].sort();
+  if (!subState.test || !tests.includes(subState.test)) subState.test = tests[0];
+  const inTest = rows.filter(x => x.run.test === subState.test);
+  const titlesInTest = [...new Set(inTest.map(x => titles[x.titleIdx]))].sort();
+  if (!subState.title || !titlesInTest.includes(subState.title)) subState.title = titlesInTest[0];
+  const meta = st.titles[subState.title] || {};
+  const chosen = inTest.filter(x => titles[x.titleIdx] === subState.title);
+  const keyFn = subState.groupBy === 'host' ? (r => r.host) : (r => r.optimization || 'baseline');
+  const pseudoRuns = chosen.map(x => ({ ...x.run, __v: x.value }));
+  const stats = sortStats(groupStats(pseudoRuns, r => r.__v, keyFn), subState.sort);
+  setHtml(app, `<h2>Suite sub-test explorer</h2>
+    <p>Test: <select id="sbTest">${tests.map(t => `<option ${t===subState.test?'selected':''}>${esc(t)}</option>`).join('')}</select>
+      Sub-test: <select id="sbTitle">${titlesInTest.map(t => `<option ${t===subState.title?'selected':''}>${esc(t)}</option>`).join('')}</select>
+      Group by: <select id="sbGroup">
+        <option value="config" ${subState.groupBy==='config'?'selected':''}>configuration</option>
+        <option value="host" ${subState.groupBy==='host'?'selected':''}>host</option></select>
+      Sort: <select id="sbSort">
+        <option value="mean" ${subState.sort==='mean'?'selected':''}>mean</option>
+        <option value="spread" ${subState.sort==='spread'?'selected':''}>widest spread</option>
+        <option value="name" ${subState.sort==='name'?'selected':''}>name</option></select></p>
+    <p class="muted">Scale: ${esc(meta.scale || '—')} · ${meta.hib ? 'higher is better' : 'lower is better'} · ${chosen.length} measurements</p>` +
+    (stats.length ? '' : '<div class="empty">No values for this selection.</div>'));
+  if (!stats.length) return;
+  bandChart(`${subState.title} — mean with min–max band`, stats);
+  const stbl = document.createElement('div');
+  setHtml(stbl, statsTable(stats));
+  app.appendChild(stbl);
+  document.getElementById('sbTest').onchange = ev => { subState.test = ev.target.value; subState.title=''; viewSubtests(); };
+  document.getElementById('sbTitle').onchange = ev => { subState.title = ev.target.value; viewSubtests(); };
+  document.getElementById('sbGroup').onchange = ev => { subState.groupBy = ev.target.value; viewSubtests(); };
+  document.getElementById('sbSort').onchange = ev => { subState.sort = ev.target.value; viewSubtests(); };
+}
+
+// ---------- Raw data browser ----------
+let rawCache = null;
+async function viewRaw() {
+  if (!rawCache) {
+    try { rawCache = await fetch('raw.json').then(x => x.ok ? x.json() : null); } catch { /* offline */ }
   }
-  app.innerHTML = html + '</table>';
+  if (!rawCache) { setHtml(app, '<h2>Raw tables</h2><div class="empty">raw.json unavailable — regenerate the report.</div>'); return; }
+  setHtml(app, '<h2>Raw database tables — latest rows, newest first</h2>' +
+    Object.entries(rawCache).sort(([a],[b]) => a.localeCompare(b)).map(([name, t]) =>
+      `<details ${name === 'runs' ? 'open' : ''}><summary><b>${esc(name)}</b> — ${t.count.toLocaleString()} rows total, showing latest ${t.rows.length}</summary>
+       <div style="overflow:auto;max-height:26rem;border:1px solid var(--line)"><table>
+         <thead><tr>${t.columns.map(c => `<th>${esc(c)}</th>`).join('')}</tr></thead>
+         <tbody>${t.rows.map(row => '<tr>' + row.map(v => `<td>${esc(v)}</td>`).join('') + '</tr>').join('')}</tbody>
+       </table></div></details>`).join(''));
 }
 
 // ---------- Run detail ----------
-let chart = null;
-function viewRun(id) {
-  nav('#/runs');
-  const r = DATA.runs.find(x => x.run_id === id);
-  if (!r) { app.innerHTML = '<div class="empty">Run not found.</div>'; return; }
-  const fields = [
-    'started_at','host','host_group','hardware_generation','test','optimization','repeat_idx',
-    'kernel','cpu_model','governor','turbo','ambient_c','bench_start_temp_c',
-    'bench_score','bench_unit','energy_wh_integrated','bench_sample_coverage',
-    'dropped_packets','checksum_failures','result_name',
-  ];
-  let html = `<p><a class="back" href="#/runs">← All runs</a></p><h2>Run #${r.run_id} — ${esc(r.test)} on ${esc(r.host)}</h2>
-    <p>Config point: <b class="scale-${r.scale}">${r.scale == null ? 'unknown' : r.scale + ' — ' + SCALE_LABEL[r.scale]}</b></p><div class="grid">` +
-    fields.map(f => `<div class="card"><b>${esc(f)}</b>${f==='started_at'?dt(r[f]):esc(Array.isArray(r[f])?JSON.stringify(r[f]):r[f])}</div>`).join('') +
-    `</div><h3>Power over time</h3><div id="chart-box"><canvas id="chart"></canvas></div>`;
+      async function viewRun(id) {
+        const r = DATA.runs.find((x) => x.run_id === id);
+        if (!r) {
+          setHtml(app, '<div class="empty">Run not found.</div>');
+          return;
+        }
+        const fields = [
+          "started_at",
+          "host",
+          "host_group",
+          "hardware_generation",
+          "test",
+          "optimization",
+          "repeat_idx",
+          "config_hash",
+          "kernel",
+          "cpu_model",
+          "governor",
+          "turbo",
+          "result_name",
+        ];
+        let html =
+          `<p><a class="back" href="#/runs">← All runs</a></p>
+    <h2>Run #${r.run_id} — ${esc(r.test)} on ${esc(r.host)}</h2>
+    <p>${scaleTag(r)} · ${esc(r.optimization)}${archTag(r.optimization)} &nbsp; ${qualityChip(r)}
+    <span class="muted">${esc(r.quality_reason)}</span></p>
+    <div class="grid tiles">` +
+          [
+            ["Score", `${fmt(r.bench_score, 3)} ${r.bench_unit || ""}`],
+            ["Energy", `${fmt(r.energy_wh, 3)} Wh`],
+            ["Idle power", `${fmt(r.idle_w, 2)} W`],
+            ["Load power", `${fmt(r.load_w, 2)} W`],
+            ["Peak power", `${fmt(r.peak_w, 2)} W`],
+            ["Bucket score", r.score == null ? "—" : `${fmt(r.score, 1)} /100`],
+            ["Samples", r.samples],
+            ["Coverage", pct(r.bench_sample_coverage)],
+          ]
+            .map(
+              ([k, v]) =>
+                `<div class="card"><small>${k}</small><b>${esc(v)}</b></div>`,
+            )
+            .join("") +
+          "</div>";
 
-  const rd = DATA.readings[String(id)];
-  if (!rd || !rd.t.length) { html += '<div class="empty">No power readings recorded for this run.</div>'; app.innerHTML = html; return; }
+        // applied configuration
+        let cfg = null;
+        try {
+          cfg =
+            typeof r.applied_config === "string"
+              ? JSON.parse(r.applied_config)
+              : r.applied_config;
+        } catch {
+          /* raw string */
+        }
+        if (cfg && typeof cfg === "object") {
+          html +=
+            `<h3>Applied configuration</h3><dl class="props">` +
+            Object.entries(cfg)
+              .map(
+                ([k, v]) =>
+                  `<dt>${esc(k)}</dt><dd>${esc(typeof v === "object" ? JSON.stringify(v) : v)}</dd>`,
+              )
+              .join("") +
+            "</dl>";
+        }
+        html +=
+          `<h3>Recorded metadata</h3><dl class="props">` +
+          fields
+            .map(
+              (f) =>
+                `<dt>${esc(f)}</dt><dd>${f === "started_at" ? dt(r[f]) : esc(Array.isArray(r[f]) ? JSON.stringify(r[f]) : r[f])}</dd>`,
+            )
+            .join("") +
+          '</dl><h3>Power over time</h3><div id="chartbox" style="display:none"><canvas id="trace"></canvas></div><div id="phaseCards"></div>';
+        setHtml(app, html);
 
-  // segment into phases for colored lines
-  const t0 = rd.t[0];
-  const segs = {};
-  rd.ph.forEach((ph, i) => { (segs[ph] ??= {x:[],y:[]}); segs[ph].x.push(rd.t[i]-t0); segs[ph].y.push(rd.p[i]); });
-  const colors = { '-1':'#8a93a3', settle:'#d2a8ff', idle:'#7ee787', bench:'#ffa657', cooldown:'#56d4dd' };
-  app.innerHTML = html;
-  chart = new Chart(document.getElementById('chart'), {
-    type: 'line',
-    data: { datasets: Object.entries(segs).map(([ph, s]) => ({
-      label: ph === '-1' ? 'unknown' : PHASES[ph] || ph,
-      data: s.x.map((x,i) => ({x, y:s.y[i]})),
-      borderColor: colors[ph] || '#8a93a3', backgroundColor: 'transparent',
-      pointRadius: 0, borderWidth: 1.5, tension: 0.1, normalized: true,
-    }))},
-    options: {
-      parsing: false, animation: false,
-      scales: {
-        x: { title: {display:true, text:'seconds since start'}, type:'linear' },
-        y: { title: {display:true, text:'power (W)'}, beginAtZero: true },
-      },
-      plugins: { legend: {labels:{color:'#e6e9ef'}},
-        tooltip: { callbacks: { title: items => `${fmt(items[0].parsed.x,1)} s` } } },
-    },
-  });
-}
+        // readings fetched on demand
+        let rd = null;
+        try {
+          rd = await fetch(`readings/${id}.json`).then((x) =>
+            x.ok ? x.json() : null,
+          );
+        } catch {
+          /* offline / missing */
+        }
+        if (!rd || !rd.t || !rd.t.length) {
+          setHtml(
+            document.getElementById("phaseCards"),
+            '<div class="empty">No power readings recorded for this run.</div>',
+          );
+          return;
+        }
+        const segs = {};
+        rd.ph.forEach((ph, i) => {
+          segs[ph] ??= { x: [], y: [] };
+          segs[ph].x.push(rd.t[i] - rd.t[0]);
+          segs[ph].y.push(rd.p[i]);
+        });
+        setHtml(
+          document.getElementById("phaseCards"),
+          '<div class="grid tiles">' +
+            Object.entries(segs)
+              .map(
+                ([ph, s]) =>
+                  `<div class="card"><small><span class="dot" style="background:${PHASE_COLOR[ph] || "#8a93a3"}"></span>${PHASES[ph] ?? ph} · ${s.y.length} samples</small>
+       <b>${fmt(mean(s.y), 2)} W</b><br><span class="muted">${fmt(Math.min(...s.y), 1)}–${fmt(Math.max(...s.y), 1)} W</span></div>`,
+              )
+              .join("") +
+            "</div>" +
+            `<div class="legend">${["-1", ...PHASES.keys()]
+              .map(
+                (ph) =>
+                  `<span><span class="dot" style="background:${PHASE_COLOR[ph]}"></span>${ph === "-1" ? "other" : PHASES[ph]}</span>`,
+              )
+              .join("")}
+     <span>${rd.t.length} plotted points</span></div>`,
+        );
+        document.getElementById("chartbox").style.display = "";
+        charts.push(
+          new Chart(document.getElementById("trace"), {
+            type: "line",
+            data: {
+              datasets: Object.entries(segs).map(([ph, s], i) => ({
+                label: ph === "-1" ? "other" : (PHASES[ph] ?? ph),
+                data: s.x.map((x, j) => ({ x, y: s.y[j] })),
+                borderColor: PHASE_COLOR[ph] || PALETTE[i % PALETTE.length],
+                backgroundColor: "transparent",
+                pointRadius: 0,
+                borderWidth: 1.5,
+                tension: 0.1,
+                normalized: true,
+                spanGaps: true,
+              })),
+            },
+            options: {
+              parsing: false,
+              animation: false,
+              maintainAspectRatio: false,
+              scales: {
+                x: {
+                  type: "linear",
+                  title: { display: true, text: "seconds since start" },
+                },
+                y: {
+                  beginAtZero: true,
+                  title: { display: true, text: "power (W)" },
+                },
+              },
+              plugins: {
+                tooltip: {
+                  callbacks: {
+                    title: (items) =>
+                      `${fmt(items[0].parsed.x, 1)} s · ${fmt(items[0].parsed.y, 2)} W`,
+                  },
+                },
+              },
+            },
+          }),
+        );
+      }
 
-function router() {
-  if (chart) { chart.destroy(); chart = null; }
-  const h = location.hash || '#/hosts';
-  const m = h.match(/^#\/run\/(\d+)/);
-  if (m) return viewRun(Number(m[1]));
-  if (h.startsWith('#/configs')) return viewConfigs(decodeURIComponent(h.split('/')[2] || ''));
-  if (h.startsWith('#/runs')) return viewRuns();
-  viewHosts();
-}
+      // ---------- chart helpers ----------
+      const charts = [];
+      function destroyCharts() {
+        while (charts.length) charts.pop().destroy();
+      }
+      function cssVar(name) {
+        return getComputedStyle(document.body).getPropertyValue(name).trim();
+      }
+      function drawBars(title, entries) {
+        const box = document.createElement("div");
+        box.id = "chartbox";
+        setHtml(box, `<canvas height="260"></canvas>`);
+        app.insertBefore(box, app.querySelector("table"));
+        const dim = cssVar("--dim"),
+          line = cssVar("--line"),
+          text = cssVar("--text");
+        charts.push(
+          new Chart(box.querySelector("canvas"), {
+            type: "bar",
+            data: {
+              labels: entries.map((e) => e.name),
+              datasets: [
+                {
+                  label: "mean score",
+                  data: entries.map((e) => e.mean),
+                  backgroundColor: cssVar("--acc"),
+                  borderRadius: 3,
+                  barPercentage: 0.6,
+                },
+                {
+                  label: "cohort min–max",
+                  data: entries.map((e) => [Math.max(0, e.min), e.max]),
+                  backgroundColor: "rgba(128,128,128,.18)",
+                  borderWidth: 0,
+                  borderRadius: 3,
+                  barPercentage: 1,
+                },
+              ],
+            },
+            options: {
+              indexAxis: "y",
+              animation: false,
+              maintainAspectRatio: false,
+              scales: {
+                x: {
+                  min: 0,
+                  max: 100,
+                  grid: { color: line },
+                  ticks: { color: dim },
+                },
+                y: {
+                  grid: { display: false },
+                  ticks: {
+                    color: text,
+                    font: { size: 11 },
+                    callback(v, i) {
+                      return "";
+                    },
+                  },
+                },
+              },
+              plugins: {
+                legend: { display: false },
+                tooltip: {
+                  callbacks: {
+                    title: (items) => entries[items[0].dataIndex].name,
+                    label: (item) => {
+                      const e = entries[item.dataIndex];
+                      return [
+                        `mean ${fmt(e.mean, 1)}`,
+                        `cohort range ${fmt(e.min, 1)}–${fmt(e.max, 1)}`,
+                        `${e.n} scored runs`,
+                      ];
+                    },
+                  },
+                },
+              },
+            },
+          }),
+        );
+      }
 
-fetch('data.json').then(r => r.json()).then(d => { DATA = d; router(); });
-window.addEventListener('hashchange', router);
-</script>
-</body>
+      // ---------- router ----------
+      function setConfigFilter(name) {
+        F.config = F.config === name ? "" : name;
+        syncFilterControls();
+        render();
+      }
+      window.setConfigFilter = setConfigFilter;
+      function nav(route) {
+        document
+          .querySelectorAll("nav a")
+          .forEach((a) =>
+            a.classList.toggle("active", route.startsWith(a.hash.slice(1))),
+          );
+      }
+      function render() {
+        destroyCharts();
+        const runs = filteredRuns();
+        document.getElementById("filterCount").textContent =
+          `${runs.length}/${DATA.runs.length} runs · ${runs.filter((r) => r.valid).length} valid`;
+        const h = location.hash || "#/overview";
+        nav(h.startsWith("#/run/") ? "#/runs" : h);
+        if (h.startsWith("#/run/"))
+          return void viewRun(Number(h.split("/")[2]));
+        if (h.startsWith("#/raw")) return void viewRaw();
+        if (h.startsWith("#/runs")) return viewRuns(runs);
+        if (h.startsWith("#/coverage")) return viewCoverage();
+        if (h.startsWith("#/ranges")) return viewRanges(runs);
+        if (h.startsWith("#/subtests")) return viewSubtests();
+        if (h.startsWith("#/compare")) return viewCompare(runs);
+        viewOverview(runs);
+      }
+      function boot(data) {
+        DATA = data;
+        bindFilters();
+        syncFilterControls();
+        render();
+      }
+      fetch("data.json")
+        .then((r) => {
+          if (!r.ok) throw new Error(`${r.status}`);
+          return r.json();
+        })
+        .then(boot)
+        .catch(() => {
+          setHtml(
+            app,
+            '<div class="empty">Could not load data.json — run scripts/export_report_data.py first.</div>',
+          );
+        });
+      window.addEventListener("hashchange", () => {
+        if (DATA) render();
+      });
+    </script>
+  </body>
 </html>
