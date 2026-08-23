@@ -17,13 +17,15 @@ import duckdb
 # Ordered most-powersave-first so substring matches resolve correctly
 # ("power" must win before "performance" sees "balance_performance").
 SCALE = [
-    (100, "Max powersave", ("max_powersave", "epp=power", "max power")),
+    (100, "Max powersave", ("max_powersave", "epp=power", "max power", "supersave")),
     (75, "Powersave", ("powersave", "balance_power", "conservative", "idle")),
     (25, "Performance", ("balance_performance",)),
     (0, "Max performance", ("max_performance", "performance", "baseline")),
 ]
 PHASES = ["settle", "idle", "bench", "cooldown"]
 IDLE_PH, BENCH_PH = 1, 2
+# Alias so the legacy-tolerance handler below reads as a plain name.
+BinderException = duckdb.BinderException
 
 # Bucket score weights: (performance weight, power weight) per scale point.
 BUCKET_WEIGHTS = {0: (1.0, 0.0), 25: (0.75, 0.25), 75: (0.25, 0.75), 100: (0.0, 1.0)}
@@ -131,10 +133,15 @@ def score_runs(runs: list[dict]) -> None:
         pwr = {k: v for k, v in pwr.items() if v is not None}
         pv, wv = list(perf.values()), list(pwr.values())
         for r in members:
-            weights = BUCKET_WEIGHTS.get(r.get("scale"))
-            if weights is None:
-                continue
-            wp, we = (0.0, 1.0) if is_idle else weights
+            # Idle tests score the power side only — no bucket needed, so runs
+            # whose optimization has no scale mapping still get scored.
+            if is_idle:
+                wp, we = 0.0, 1.0
+            else:
+                weights = BUCKET_WEIGHTS.get(r.get("scale"))
+                if weights is None:
+                    continue
+                wp, we = weights
             rid, total = r["run_id"], 0.0
             if wp > 0:
                 v = perf.get(rid)
@@ -245,7 +252,7 @@ def export(db_path: str) -> dict:
             entry["t"].append(round(ts, 2))
             entry["p"].append(power)
             entry["ph"].append(PHASES.index(phase) if phase in PHASES else -1)
-    except duckdb.BinderException:
+    except BinderException:
         pass  # legacy DB without run_id/phase columns
     subtests = subtest_results(con)
     raw = raw_previews(con)
@@ -278,10 +285,12 @@ def _check():
         mk(4, "h", "idle", 100, None, idle_w=10),    # idle runs: power only
         mk(5, "h", "idle", 0, None, idle_w=15),
         mk(6, "h", "t", 25, 95, load_w=44, valid=False, invalid_reason="manual"),
+        mk(7, "h", "idle", None, None, idle_w=12),  # unmapped optimization: still scored
     ]
     readings = {
         "4": {"t": [0, 1], "p": [10.0, 10.5], "ph": [0, IDLE_PH]},
         "5": {"t": [0, 1], "p": [15.0, 15.2], "ph": [0, IDLE_PH]},
+        "7": {"t": [0], "p": [12.0], "ph": [IDLE_PH]},
     }
     ps = phase_stats(readings["4"])
     assert ps["idle_w"] == 10.5 and ps["peak_w"] == 10.5 and ps["bench_samples"] == 0
@@ -303,7 +312,9 @@ def _check():
     # percentile ranks are mid-rank on ties, so the cohort best lands just under 100
     assert byid[1]["score"] == 83.3 and byid[2]["score"] == 83.3 and byid[3]["score"] == 50.0
     # idle bucket ignores performance entirely: lower idle power wins
-    assert byid[4]["score"] == 75.0 and byid[5]["score"] == 25.0
+    assert byid[4]["score"] == 83.3 and byid[5]["score"] == 16.7
+    # idle runs score even without a scale mapping (power side only)
+    assert byid[7]["score"] == 50.0
     assert byid[6]["score"] is None  # invalid runs never scored
     # --- scale mapping ---
     assert map_scale("epp=performance") == 0
@@ -311,6 +322,7 @@ def _check():
     assert map_scale("epp=balance_performance") == 25
     assert map_scale("cpu_governor=powersave") == 75
     assert map_scale("pcie_aspm=powersave") == 75
+    assert map_scale("pcie_aspm=powersupersave") == 100
     assert map_scale("epp=power") == 100
     assert map_scale("combined=turbo_off+governor_powersave") == 75
     assert map_scale(None) is None
